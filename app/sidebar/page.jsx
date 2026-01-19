@@ -21,12 +21,10 @@ import {
 import { useAuth } from '../layout/authcontent';
 
 const sidebarSections = [
-
   {
     title: 'Design Gallery',
     items: [
-          { name: 'Wallpaper Gallery', path: '/wallpaper', icon: Palette },
-      { name: 'Wallpaper Collection', path: '/wallpapercollection', icon: FileImage },
+      { name: 'Wallpaper Gallery', path: '/wallpaper', icon: Palette },
     ],
   },
   {
