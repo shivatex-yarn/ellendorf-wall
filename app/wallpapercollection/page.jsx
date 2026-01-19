@@ -1183,7 +1183,7 @@ export default function EllendorfWallpaperApp() {
 
       <header className="sticky top-0 bg-black/95 backdrop-blur-2xl z-50 border-b border-zinc-800 px-4 md:px-8 py-4 md:py-6 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center w-full md:w-auto">
-          <Button variant="ghost" onClick={() => router.push("/")} className="mr-4">
+          <Button variant="ghost" onClick={() => router.push("/wallpaper")} className="mr-4">
             <ArrowLeft className="mr-2 w-5 h-5 md:w-6 md:h-6" /> Back
           </Button>
           <h1 className="text-lg font-semibold">Ellendorf Wallpaper</h1>
