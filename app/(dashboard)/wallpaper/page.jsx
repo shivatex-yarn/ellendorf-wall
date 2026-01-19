@@ -107,7 +107,7 @@ export default function Wallpaper() {
           />
         </div>
 
-        <div className="relative z-10 max-w-7xl px-4 sm:px-10 sm:ml-72 py-10 space-y-10">
+        <div className="relative z-10 max-w-7xl px-4 sm:px-10 py-10 space-y-10">
           <motion.div className="text-center mb-24" initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}>
             <motion.div
               animate={{ rotate: 360 }}
