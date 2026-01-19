@@ -18,6 +18,7 @@ import {
   Package,
   FileImage,
 } from 'lucide-react';
+import { useAuth } from '../layout/authcontent';
 
 const sidebarSections = [
 
@@ -46,8 +47,14 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const { logout } = useAuth();
 
   const isActive = (path) => pathname === path;
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   return (
     <>
@@ -112,7 +119,7 @@ export default function Sidebar() {
           {/* Logout */}
           <div className="pt-3 mt-auto border-t border-gray-700">
             <button
-              onClick={() => router.push('/')}
+              onClick={handleLogout}
               className="flex items-center w-full p-3 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition"
             >
               <LogOut className="w-5 h-5 text-red-400" />
