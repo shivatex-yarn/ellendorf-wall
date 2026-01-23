@@ -4,20 +4,10 @@ import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Bot,
-  Users,
-  User,
-  Palette,
-  Eye,
-  LogOut,
-  Home,
-  Menu,
-  Wrench,
-  Camera,
-  Sparkles,
-  Package,
-  FileImage,
+  Bot, Users, User, Palette, Eye, LogOut, Home, Menu, Wrench,
+  Camera, Sparkles, Package, FileImage,
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { useAuth } from '../layout/authcontent';
 
 const sidebarSections = [
@@ -25,6 +15,7 @@ const sidebarSections = [
     title: 'Design Gallery',
     items: [
       { name: 'Wallpaper Gallery', path: '/wallpaper', icon: Palette },
+      { name: 'Wallpaper Collection', path: '/wallcoveringcollections', icon: FileImage },
     ],
   },
   {
@@ -50,7 +41,19 @@ export default function Sidebar() {
   const isActive = (path) => pathname === path;
 
   const handleLogout = () => {
+    // Clear all session & local storage
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // Call auth logout (if it does additional cleanup)
     logout();
+
+    toast.success('Logged out successfully', {
+      position: 'top-right',
+      duration: 3000,
+    });
+
+    // Redirect to login/home
     router.push('/');
   };
 

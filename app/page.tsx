@@ -98,7 +98,7 @@ export default function AmazonLandingPage() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="text-3xl font-bold">
             <span>Ellendorf</span>
-            <span className="text-blue-300 ml-2">Wallpaper</span>
+            <span className="text-blue-300 ml-2">Textile Wall Coverings</span>
           </div>
 
           <button className="md:hidden" onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -137,7 +137,7 @@ export default function AmazonLandingPage() {
             <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent mb-4">
               Ellendorf — Powered by ReImagine AI
             </h1>
-            <p className="text-2xl text-gray-700 mb-10">AI-Powered Wallpaper Solutions</p>
+            <p className="text-2xl text-gray-700 mb-10">AI-Powered Textile Wall Coverings</p>
 
             <motion.div
               className="bg-white/95 backdrop-blur-lg rounded-3xl p-10 shadow-2xl max-w-2xl mx-auto lg:mx-0 border border-slate-200"
@@ -282,7 +282,7 @@ export default function AmazonLandingPage() {
         <div className="container mx-auto px-4 text-center">
           <h3 className="text-4xl font-bold mb-2">
             <span>Ellendorf</span>
-            <span className="text-blue-300 ml-2">Wallpaper</span>
+            <span className="text-blue-300 ml-2">Textile Wall Coverings</span>
           </h3>
           <p className="text-blue-200">AI-Powered Design Solutions</p>
           <p className="text-sm mt-6 opacity-80">© 2025 Ellendorf. All rights reserved.</p>

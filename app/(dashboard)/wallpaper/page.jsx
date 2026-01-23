@@ -120,7 +120,7 @@ export default function Wallpaper() {
               ELLENDORF
             </h1>
             <p className="text-2xl md:text-4xl font-light text-blue-600 tracking-widest">
-              Luxury Wallpaper Collection
+              Luxury Textile Wall Coverings Collection
             </p>
           </motion.div>
 

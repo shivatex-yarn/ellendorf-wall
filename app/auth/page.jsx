@@ -14,28 +14,24 @@ import axios from "axios";
 
 export default function Auth() {
   const [loginData, setLoginData] = useState({ email: "", password: "" });
-  const [loginErrors, setLoginErrors] = useState({
-    email: "",
-    password: "",
-    submit: "",
-  });
+  const [loginErrors, setLoginErrors] = useState({ email: "", password: "", submit: "" });
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const { login } = useAuth();
 
   const quotes = [
-    'Transform your space, transform your life.',
-    'Style your space, shape your mood.',
-    'Every wall tells a story; make yours unforgettable.',
-    'Patterns that inspire, designs that captivate.',
-    'Elevate your walls, elevate your world.',
-    'Where creativity meets craftsmanship.',
-    'Unleash the potential of your walls.',
-    'From ordinary to extraordinary, one wall at a time.',
-    'Your walls, your style, your story.',
-    'Design your walls, design your life.',
-    'Let your walls reflect your personality.',
-    'Crafting spaces that inspire and delight.',
+    "Transform your space, transform your life.",
+    "Style your space, shape your mood.",
+    "Every wall tells a story; make yours unforgettable.",
+    "Patterns that inspire, designs that captivate.",
+    "Elevate your walls, elevate your world.",
+    "Where creativity meets craftsmanship.",
+    "Unleash the potential of your walls.",
+    "From ordinary to extraordinary, one wall at a time.",
+    "Your walls, your style, your story.",
+    "Design your walls, design your life.",
+    "Let your walls reflect your personality.",
+    "Crafting spaces that inspire and delight.",
   ];
 
   const [currentQuoteIndex, setCurrentQuoteIndex] = useState(0);
@@ -56,8 +52,7 @@ export default function Auth() {
   const validateLogin = () => {
     const errors = {};
     if (!loginData.email) errors.email = "Email is required";
-    else if (!/^\S+@\S+\.\S+$/.test(loginData.email))
-      errors.email = "Invalid email format";
+    else if (!/^\S+@\S+\.\S+$/.test(loginData.email)) errors.email = "Invalid email format";
     if (!loginData.password) errors.password = "Password is required";
     return errors;
   };
@@ -76,15 +71,13 @@ export default function Auth() {
 
       const res = await axios.post(apiUrl, loginData, {
         headers: { "Content-Type": "application/json" },
-        withCredentials: true, // Added if cookies/session used
+        withCredentials: true,
       });
 
       const { user, token } = res.data;
 
       if (!["user", "admin", "superadmin"].includes(user.role)) {
-        toast.error(`Unauthorized role: ${user.role}`, {
-          position: "top-center",
-        });
+        toast.error(`Unauthorized role: ${user.role}`, { position: "top-center" });
         return;
       }
 
@@ -95,30 +88,30 @@ export default function Auth() {
 
       login({ ...user, token });
 
-      toast.success(`Welcome ${user.username || user.email}!`, {
-        duration: 3000,
-        position: "top-center",
-        style: {
-          background: "#2563EB",
-          color: "#fff",
-          fontWeight: "bold",
-        },
-      });
+      toast.success(
+        <div className="flex flex-col gap-1">
+          <span className="font-bold">Welcome to Ellendorf</span>
+          <span className="text-sm opacity-90">Powered by Reimagine AI</span>
+        </div>,
+        {
+          duration: 4000,
+          position: "top-center",
+          style: {
+            background: "linear-gradient(to right, #1e40af, #3b82f6)",
+            color: "#fff",
+            borderRadius: "12px",
+            padding: "16px 24px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+            minWidth: "320px",
+          },
+        }
+      );
 
-      router.push("/wallpapercollection");
+      router.push("/wallcoveringcollections");
     } catch (error) {
-      console.error("Login error:", error.response?.data || error.message);
-
-      const errorMessage =
-        error?.response?.data?.error ||
-        "Login failed. Please try again.";
-
+      const errorMessage = error?.response?.data?.error || "Login failed. Please try again.";
       setLoginErrors((prev) => ({ ...prev, submit: errorMessage }));
-
-      toast.error(errorMessage, {
-        duration: 3000,
-        position: "top-center",
-      });
+      toast.error(errorMessage, { duration: 3000, position: "top-center" });
     }
   };
 
@@ -126,36 +119,24 @@ export default function Auth() {
     <>
       <Toaster />
       <div className="min-h-screen flex bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-100">
-        {/* Left Side - Hero Content */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
           className="hidden lg:flex w-1/2 items-center justify-center p-12"
         >
           <div className="text-center max-w-lg">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.6 }}
-            >
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.3, duration: 0.6 }}>
               <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent mb-6">
-                Reimagine Wallpaper
+                Reimagine Textile Wall Coverings
               </h1>
-              <p className="text-2xl font-light text-gray-700 mb-8">
-                AI-Powered Wallpaper Solutions
-              </p>
+              <p className="text-2xl font-light text-gray-700 mb-8">AI-Powered Textile Wall Coverings</p>
             </motion.div>
 
-            {/* Rotating Quotes */}
-            <motion.div 
+            <motion.div
               className="bg-white/80 backdrop-blur-md rounded-2xl p-8 shadow-xl border border-slate-200"
               animate={{ y: [0, -10, 0] }}
-              transition={{ 
-                repeat: Infinity, 
-                duration: 3,
-                ease: "easeInOut" 
-              }}
+              transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
             >
               <AnimatePresence mode="wait">
                 <motion.p
@@ -171,19 +152,13 @@ export default function Auth() {
               </AnimatePresence>
             </motion.div>
 
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1, duration: 0.5 }}
-              className="text-sm text-gray-500 mt-6"
-            >
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 0.5 }} className="text-sm text-gray-500 mt-6">
               One step solution for your dream space
             </motion.p>
           </div>
         </motion.div>
 
-        {/* Right Side - Login Form */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
@@ -191,11 +166,7 @@ export default function Auth() {
         >
           <Card className="w-full max-w-md bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200">
             <CardHeader className="text-center space-y-2">
-              <motion.div
-                initial={{ scale: 0.8, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ delay: 0.2, duration: 0.6 }}
-              >
+              <motion.div initial={{ scale: 0.8, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
                 <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <LogIn className="w-8 h-8 text-white" />
                 </div>
@@ -206,7 +177,6 @@ export default function Auth() {
 
             <CardContent className="p-6">
               <form className="space-y-5" onSubmit={handleLoginSubmit}>
-                {/* Email Input */}
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-sm font-semibold text-gray-700">
                     Email Address
@@ -230,21 +200,9 @@ export default function Auth() {
                       </svg>
                     </span>
                   </div>
-                  <AnimatePresence>
-                    {loginErrors.email && (
-                      <motion.p
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="text-red-500 text-sm pl-1"
-                      >
-                        {loginErrors.email}
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
+                  {loginErrors.email && <p className="text-red-500 text-sm pl-1">{loginErrors.email}</p>}
                 </div>
 
-                {/* Password Input */}
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-semibold text-gray-700">
                     Password
@@ -269,61 +227,30 @@ export default function Auth() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
+                      onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-blue-500 transition-colors"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
-                  <AnimatePresence>
-                    {loginErrors.password && (
-                      <motion.p
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="text-red-500 text-sm pl-1"
-                      >
-                        {loginErrors.password}
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
+                  {loginErrors.password && <p className="text-red-500 text-sm pl-1">{loginErrors.password}</p>}
                 </div>
 
-                {/* Submit Errors */}
-                <AnimatePresence>
-                  {loginErrors.submit && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="text-red-500 text-sm text-center bg-red-50 rounded-lg p-2"
-                    >
-                      {loginErrors.submit}
-                    </motion.p>
-                  )}
-                </AnimatePresence>
+                {loginErrors.submit && (
+                  <p className="text-red-500 text-sm text-center bg-red-50 rounded-lg p-2">{loginErrors.submit}</p>
+                )}
 
-                {/* Submit Button */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.5, duration: 0.4 }}
+                <Button
+                  type="submit"
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-4 rounded-xl text-lg shadow-md transform hover:scale-[1.02] transition-all duration-300"
                 >
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-4 rounded-xl text-lg shadow-md transform hover:scale-[1.02] transition-all duration-300"
-                  >
-                    <LogIn className="w-5 h-5 mr-2" />
-                    Sign In Securely
-                  </Button>
-                </motion.div>
+                  <LogIn className="w-5 h-5 mr-2" />
+                  Sign In Securely
+                </Button>
               </form>
 
-              {/* Footer */}
               <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-500">
-                  © 2025 Reimagine Wallpaper. AI-Powered Design Solutions.
-                </p>
+                <p className="text-xs text-gray-500">© 2025 Reimagine Textile Wall Coverings. AI-Powered Design Solutions.</p>
               </div>
             </CardContent>
           </Card>
