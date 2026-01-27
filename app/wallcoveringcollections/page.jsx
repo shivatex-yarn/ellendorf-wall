@@ -20,29 +20,96 @@ import {
 import { jsPDF } from "jspdf";
 import { AnimatePresence, motion } from "framer-motion";
 
-// Image cache for preloading
-const imageCache = new Map();
+// Enhanced Image Cache with LRU (Least Recently Used) strategy
+class ImageCache {
+  constructor(maxSize = 100) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+    this.accessOrder = [];
+  }
 
-// Preload image function
+  has(key) {
+    return this.cache.has(key);
+  }
+
+  get(key) {
+    if (this.cache.has(key)) {
+      // Move to end of access order (most recently used)
+      this.accessOrder = this.accessOrder.filter(k => k !== key);
+      this.accessOrder.push(key);
+      return this.cache.get(key);
+    }
+    return null;
+  }
+
+  set(key, value) {
+    if (this.cache.size >= this.maxSize) {
+      // Remove least recently used item
+      const lruKey = this.accessOrder.shift();
+      if (lruKey) {
+        this.cache.delete(lruKey);
+      }
+    }
+    
+    this.cache.set(key, value);
+    this.accessOrder.push(key);
+    
+    // Clean up old entries if they exceed max size
+    while (this.accessOrder.length > this.maxSize) {
+      const oldKey = this.accessOrder.shift();
+      if (oldKey) {
+        this.cache.delete(oldKey);
+      }
+    }
+  }
+
+  clear() {
+    this.cache.clear();
+    this.accessOrder = [];
+  }
+}
+
+const imageCache = new ImageCache(200); // Increased cache size
+
+// Preload image function with cache support
 const preloadImage = (url) => {
   return new Promise((resolve, reject) => {
+    // Check cache first
     if (imageCache.has(url)) {
-      resolve(imageCache.get(url));
+      const cachedValue = imageCache.get(url);
+      if (cachedValue instanceof Promise) {
+        // If it's a pending promise, wait for it
+        cachedValue.then(resolve).catch(reject);
+      } else {
+        // If it's already loaded, resolve immediately
+        resolve(cachedValue);
+      }
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = url;
+    // Create a promise for this image
+    const imagePromise = new Promise((resolveLoad, rejectLoad) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = url;
+      
+      img.onload = () => {
+        const dataUrl = url; // We'll just cache the URL for now
+        imageCache.set(url, dataUrl);
+        resolveLoad(dataUrl);
+      };
+      
+      img.onerror = (error) => {
+        imageCache.set(url, null); // Cache null to prevent repeated failed attempts
+        rejectLoad(new Error(`Failed to load image: ${url}`));
+      };
+    });
+
+    // Store the promise in cache
+    imageCache.set(url, imagePromise);
     
-    img.onload = () => {
-      imageCache.set(url, url);
-      resolve(url);
-    };
-    
-    img.onerror = () => {
-      reject(new Error(`Failed to load image: ${url}`));
-    };
+    // Wait for the image to load
+    imagePromise.then(resolve).catch(reject);
   });
 };
 
@@ -121,34 +188,61 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// WallpaperCard Component - For grid view
+// WallpaperCard Component - For grid view (IMPROVED)
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [isImageError, setIsImageError] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true,
+    isError: false
+  });
 
-  // Preload image on component mount
+  // Preload image on component mount (IMPROVED)
   useEffect(() => {
+    let isMounted = true;
+    
     const loadImage = async () => {
       if (!wp.imageUrl) {
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false,
+            isError: false
+          });
+        }
         return;
       }
 
+      if (isMounted) {
+        setImageState(prev => ({ ...prev, isLoading: true }));
+      }
+
       try {
-        setIsImageError(false);
         const cachedUrl = await preloadImage(wp.imageUrl);
-        setImageSrc(cachedUrl);
+        if (isMounted) {
+          setImageState({
+            src: cachedUrl,
+            isLoading: false,
+            isError: false
+          });
+        }
       } catch (error) {
         console.error("Failed to load image:", error);
-        setImageSrc("/placeholder.jpg");
-        setIsImageError(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false,
+            isError: true
+          });
+        }
       }
     };
 
     loadImage();
+
+    return () => {
+      isMounted = false;
+    };
   }, [wp.imageUrl]);
 
   const handleClick = (e) => {
@@ -184,11 +278,11 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       onClick={handleClick}
     >
       {/* Loading/Error state */}
-      {!isImageLoaded && !isImageError && (
+      {imageState.isLoading && (
         <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 animate-pulse ${compact ? 'rounded-lg' : 'rounded-2xl'}`} />
       )}
       
-      {isImageError && (
+      {imageState.isError && (
         <div className={`absolute inset-0 bg-zinc-800 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
           <span className="text-zinc-500 text-xs">Failed to load</span>
         </div>
@@ -196,19 +290,14 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
       {/* Main image */}
       <motion.div layoutId={compact ? undefined : `image-${wp.id}-${id}`} className="w-full h-full">
-        {imageSrc && (
+        {imageState.src && !imageState.isLoading && (
           <img
-            src={imageSrc}
+            src={imageState.src}
             alt={wp.name}
             loading={index < 12 ? "eager" : "lazy"}
-            onLoad={() => setIsImageLoaded(true)}
-            onError={() => {
-              setIsImageError(true);
-              setIsImageLoaded(true);
-            }}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
-              isImageLoaded ? "opacity-100" : "opacity-0"
-            } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
+              compact ? 'rounded-lg' : 'rounded-2xl'
+            }`}
             crossOrigin="anonymous"
             decoding="async"
           />
@@ -245,28 +334,53 @@ WallpaperCard.displayName = 'WallpaperCard';
 // Compact Wallpaper Card for Liked Modal
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true
+  });
 
   useEffect(() => {
+    let isMounted = true;
+    
     const loadImage = async () => {
       if (!wp.imageUrl) {
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
         return;
+      }
+
+      if (isMounted) {
+        setImageState(prev => ({ ...prev, isLoading: true }));
       }
 
       try {
         const cachedUrl = await preloadImage(wp.imageUrl);
-        setImageSrc(cachedUrl);
+        if (isMounted) {
+          setImageState({
+            src: cachedUrl,
+            isLoading: false
+          });
+        }
       } catch (error) {
         console.error("Failed to load image:", error);
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
       }
     };
 
     loadImage();
+
+    return () => {
+      isMounted = false;
+    };
   }, [wp.imageUrl]);
 
   const handleClick = (e) => {
@@ -294,18 +408,15 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         className="relative aspect-[4/3] overflow-hidden"
         onClick={handleClick}
       >
-        {!isImageLoaded && (
+        {imageState.isLoading && (
           <div className="absolute inset-0 bg-zinc-800 animate-pulse rounded-lg" />
         )}
         
-        {imageSrc && (
+        {imageState.src && !imageState.isLoading && (
           <img
-            src={imageSrc}
+            src={imageState.src}
             alt={wp.name}
-            onLoad={() => setIsImageLoaded(true)}
-            className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-110 ${
-              isImageLoaded ? "opacity-100" : "opacity-0"
-            }`}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
           />
         )}
 
@@ -352,7 +463,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
 
 CompactWallpaperCard.displayName = 'CompactWallpaperCard';
 
-// Category Section Component
+// Category Section Component (IMPROVED with image preloading)
 const CategorySection = React.memo(({ 
   category, 
   wallpapers, 
@@ -377,42 +488,29 @@ const CategorySection = React.memo(({
   const totalPages = Math.ceil(categoryItems.length / itemsPerPage);
   const currentPage = pageByCategory[category] || 0;
   const start = currentPage * itemsPerPage;
-  const visibleItems = categoryItems.slice(start, start + itemsPerPage);
+  const visibleItems = useMemo(() => 
+    categoryItems.slice(start, start + itemsPerPage),
+    [categoryItems, start, itemsPerPage]
+  );
 
-  // Preload images for current and next page
+  // Preload images for current page only (simpler approach)
   useEffect(() => {
-    const preloadAllImages = async () => {
-      const imagesToPreload = [];
-      
-      // Current page images
-      visibleItems.forEach(wp => {
-        if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
+    const preloadVisibleImages = async () => {
+      const preloadPromises = visibleItems.map(wp => {
+        if (wp.imageUrl) {
+          return preloadImage(wp.imageUrl).catch(() => {
+            // Silently handle individual image failures
+            return null;
+          });
+        }
+        return Promise.resolve(null);
       });
       
-      // Next page images (if exists)
-      if (currentPage < totalPages - 1) {
-        const nextStart = (currentPage + 1) * itemsPerPage;
-        const nextPageItems = categoryItems.slice(nextStart, nextStart + itemsPerPage);
-        nextPageItems.forEach(wp => {
-          if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
-        });
-      }
-      
-      // Previous page images (if exists)
-      if (currentPage > 0) {
-        const prevStart = (currentPage - 1) * itemsPerPage;
-        const prevPageItems = categoryItems.slice(prevStart, prevStart + itemsPerPage);
-        prevPageItems.forEach(wp => {
-          if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
-        });
-      }
-      
-      // Preload all images
-      await Promise.allSettled(imagesToPreload.map(url => preloadImage(url)));
+      await Promise.all(preloadPromises);
     };
     
-    preloadAllImages();
-  }, [categoryItems, currentPage, visibleItems, totalPages, itemsPerPage]);
+    preloadVisibleImages();
+  }, [visibleItems]);
 
   // Check if this category contains the highlighted product
   const containsHighlightedProduct = useMemo(() => {
@@ -474,14 +572,7 @@ const CategorySection = React.memo(({
           </div>
         )}
       </div>
-      <motion.div 
-        key={currentPage}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3"
-      >
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {visibleItems.map((wp, idx) => (
           <WallpaperCard 
             key={`${wp.id}-${currentPage}-${idx}`} 
@@ -494,7 +585,7 @@ const CategorySection = React.memo(({
             id={id}
           />
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 });
@@ -503,25 +594,45 @@ CategorySection.displayName = 'CategorySection';
 
 // Lightbox Component for viewing full-size wallpaper
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true
+  });
 
   // Preload high-quality image for lightbox
   useEffect(() => {
     if (wallpaper?.imageUrl && isOpen) {
+      let isMounted = true;
+      
       const loadImage = async () => {
+        if (isMounted) {
+          setImageState(prev => ({ ...prev, isLoading: true }));
+        }
+
         try {
-          // Don't set isImageLoaded to false here - let the natural loading state handle it
           const cachedUrl = await preloadImage(wallpaper.imageUrl);
-          setImageSrc(cachedUrl);
-          // Let the onLoad handler set isImageLoaded to true
+          if (isMounted) {
+            setImageState({
+              src: cachedUrl,
+              isLoading: false
+            });
+          }
         } catch (error) {
           console.error("Failed to load lightbox image:", error);
-          setImageSrc(wallpaper.imageUrl);
-          // Let the onError handler handle the loading state
+          if (isMounted) {
+            setImageState({
+              src: wallpaper.imageUrl,
+              isLoading: false
+            });
+          }
         }
       };
+      
       loadImage();
+      
+      return () => {
+        isMounted = false;
+      };
     }
   }, [wallpaper?.imageUrl, isOpen]);
 
@@ -611,7 +722,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                   layoutId={`image-${wallpaper.id}-${id}`}
                   className="w-full h-full flex items-center justify-center"
                 >
-                  {!isImageLoaded && (
+                  {imageState.isLoading && (
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -619,20 +730,15 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                     />
                   )}
                   
-                  {imageSrc && (
+                  {imageState.src && !imageState.isLoading && (
                     <motion.img
                       initial={{ opacity: 0 }}
-                      animate={{ opacity: isImageLoaded ? 1 : 0 }}
-                      transition={{ duration: 0.3, delay: isImageLoaded ? 0 : 0.1 }}
-                      src={imageSrc}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                      src={imageState.src}
                       alt={wallpaper.name}
                       loading="eager"
                       className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                      onLoad={() => setIsImageLoaded(true)}
-                      onError={() => {
-                        setImageSrc("https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=1200&auto=format&fit=crop");
-                        setIsImageLoaded(true);
-                      }}
                     />
                   )}
                 </motion.div>
@@ -689,25 +795,34 @@ export default function EllendorfWallpaperApp() {
   const ref = useRef(null);
   const id = useId();
 
+  // Load liked wallpapers from sessionStorage
   useEffect(() => {
     const stored = sessionStorage.getItem("likedWallpapers");
     if (stored) setLikedWallpapers(JSON.parse(stored));
   }, []);
 
+  // Save liked wallpapers to sessionStorage
   useEffect(() => {
     sessionStorage.setItem("likedWallpapers", JSON.stringify(likedWallpapers));
   }, [likedWallpapers]);
 
+  // Handle escape key and body overflow
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.key === "Escape") setSelectedWallpaper(null);
     };
-    if (selectedWallpaper) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "auto";
+    
+    if (selectedWallpaper) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "auto";
+    }
+    
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedWallpaper]);
 
+  // Toggle like function
   const toggleLike = useCallback((wp) => {
     setLikedWallpapers((prev) => {
       const exists = prev.some((w) => w.id === wp.id);
@@ -741,6 +856,7 @@ export default function EllendorfWallpaperApp() {
     setLikedWallpapers(prev => prev.filter(w => w.id !== wp.id));
   }, []);
 
+  // Fetch wallpapers data
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -753,16 +869,20 @@ export default function EllendorfWallpaperApp() {
             ...w,
             imageUrl: w.imageUrl || "/placeholder.jpg",
           }));
+        
         activeWallpapers.sort((a, b) => {
           const catA = a.subCategory?.name || "Other";
           const catB = b.subCategory?.name || "Other";
           return catA.localeCompare(catB);
         });
+        
         setWallpapers(activeWallpapers);
         
-        // Preload first batch of images
+        // Preload first batch of images in background
         const firstBatch = activeWallpapers.slice(0, 24);
-        await Promise.allSettled(firstBatch.map(wp => preloadImage(wp.imageUrl)));
+        setTimeout(() => {
+          Promise.allSettled(firstBatch.map(wp => preloadImage(wp.imageUrl)));
+        }, 100);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1397,14 +1517,6 @@ doc.save(`Ellendorf_Luxury_Wallpaper_${customerName.replace(/\s+/g, '_')}_${form
                       )}
                     </Button>
                   </div>
-                  
-                  {/* <Button 
-                    onClick={() => { setShowLikedModal(false); setShowTemplateChoice(true); }} 
-                    disabled={likedWallpapers.length === 0}
-                    className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 px-4 py-2 rounded-lg text-sm"
-                  >
-                    Generate Templates
-                  </Button> */}
                 </div>
               </div>
               

@@ -1,57 +1,18 @@
 "use client";
-
 import React, { useState, useEffect } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Sparkles, Palette, Shield, Leaf, ChevronRight, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
 
-// Define SectionLogo component outside the main component
-const SectionLogo = ({ sectionId, logoPosition }: { sectionId: string; logoPosition: string | null }) => (
-  <motion.div
-    className="my-8"
-    initial={{ opacity: 0, scale: 0.8 }}
-    animate={{ opacity: logoPosition === sectionId ? 1 : 0.3, scale: logoPosition === sectionId ? 1 : 0.9 }}
-    transition={{ duration: 0.5 }}
-  >
-    <Image
-      src="/assets/brand.png"
-      alt="Ellendorf Logo"
-      width={220}
-      height={110}
-      className="mx-auto"
-      priority
-    />
-  </motion.div>
-);
-
-export default function AmazonLandingPage() {
+export default function LuxuryLandingPage() {
   const [currentQuote, setCurrentQuote] = useState(0);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [logoPosition, setLogoPosition] = useState<string | null>(null);
 
   const quotes = [
-    'A wall is a canvas for your dreams. Paint it with passion.',
+    'A wall is a canvas for your dreams.',
     'Transform your space, transform your life.',
     'Style your space, shape your mood.',
-    'Every wall tells a story; make yours unforgettable.',
-    'Patterns that inspire, designs that captivate.',
     'Elevate your walls, elevate your world.',
-    'Where creativity meets craftsmanship.',
-    'Unleash the potential of your walls.',
-    'From ordinary to extraordinary, one wall at a time.',
-    'Your walls, your style, your story.',
-    'Design your walls, design your life.',
-    'Let your walls reflect your personality.',
-    'Crafting spaces that inspire and delight.',
-    'Innovative designs for modern living.',
-    'Patterns that breathe life into your walls.',
-    'Transforming walls into works of art.',
-    'Elevate your interiors with stunning wallpapers.',
-    'Where imagination meets design.',
-    'Create a sanctuary with our exquisite wallpapers.',
-    'Design is not just what it looks like, but how it feels.',
   ];
 
   useEffect(() => {
@@ -61,231 +22,226 @@ export default function AmazonLandingPage() {
     return () => clearInterval(interval);
   }, [quotes.length]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      const sections = [
-        { id: 'welcome', el: document.querySelector('.welcome-section') },
-        { id: 'customization', el: document.querySelector('.customization-section') },
-        { id: 'why-choose', el: document.querySelector('.why-choose-section') },
-        { id: 'contact', el: document.querySelector('.contact-section') },
-      ];
-
-      const offset = 150;
-      let active: string | null = null;
-
-      for (const { id, el } of sections) {
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.top <= offset && rect.bottom >= offset) {
-            active = id;
-            break;
-          }
-        }
-      }
-
-      setLogoPosition(active);
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  const features = [
+    {
+      icon: <Wand2 className="w-8 h-8" />,
+      title: "AI-Powered Design",
+      description: "Real-time design visualization with our advanced AI technology."
+    },
+    {
+      icon: <Palette className="w-8 h-8" />,
+      title: "Personalized Murals",
+      description: "Custom designs tailored to your exact specifications."
+    },
+    {
+      icon: <Shield className="w-8 h-8" />,
+      title: "Premium Materials",
+      description: "UV-resistant, bacteria-resistant, and durable materials."
+    },
+    {
+      icon: <Leaf className="w-8 h-8" />,
+      title: "Eco-Friendly",
+      description: "Sustainable, chemical-free, and environmentally responsible."
+    }
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-100">
-      {/* HEADER - Luxury dark navy/blue theme */}
-      <header className="sticky top-0 z-50 bg-gradient-to-b from-slate-900 to-slate-800 text-white shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="text-3xl font-bold">
-            <span>Ellendorf</span>
-            <span className="text-blue-300 ml-2">Textile Wall Coverings</span>
-          </div>
-
-          <button className="md:hidden" onClick={() => setIsMenuOpen(!isMenuOpen)}>
-            {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {isMenuOpen && (
-            <motion.div
-              initial={{ height: 0 }}
-              animate={{ height: 'auto' }}
-              exit={{ height: 0 }}
-              className="md:hidden bg-slate-900/95 backdrop-blur-md overflow-hidden"
-            >
-              <div className="px-4 py-6 space-y-4 text-center">
-                <Link href="" className="block text-lg text-white">Custom Design</Link>
-                <Link href="" className="block text-lg text-white">Installation</Link>
-                <Link href="" className="block text-lg text-white">Todays Deals</Link>
-              
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Luxury Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/50">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-indigo-600 blur-md opacity-30"></div>
+              <div className="relative text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
+                Ellendorf
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+            <div className="hidden md:block text-sm text-slate-600 font-medium border-l border-slate-200 pl-3">
+              Textile Wall Coverings
+            </div>
+          </div>
+          <Link href="/auth">
+            <Button className="bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white px-6 py-2 rounded-full font-medium shadow-lg hover:shadow-xl transition-all duration-300">
+              Start Designing
+              <ChevronRight className="ml-2 w-4 h-4" />
+            </Button>
+          </Link>
+        </div>
       </header>
 
-      {/* HERO */}
-      <section className="relative min-h-screen flex items-center justify-center welcome-section">
-        <div className="container mx-auto px-4 grid lg:grid-cols-2 gap-12 items-center">
-          <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-            className="text-center lg:text-left"
-          >
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent mb-4">
-              Ellendorf — Powered by ReImagine AI
-            </h1>
-            <p className="text-2xl text-gray-700 mb-10">AI-Powered Textile Wall Coverings</p>
+      {/* Hero Section */}
+      <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-blue-50/30"></div>
+        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 left-20 w-96 h-96 bg-gradient-to-br from-indigo-400/10 to-blue-600/10 rounded-full blur-3xl"></div>
+        
+        <div className="container mx-auto px-6 relative z-10">
+          <div className="max-w-5xl mx-auto text-center">
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+              className="mb-12"
+            >
+              <div className="inline-flex items-center justify-center space-x-3 bg-white/80 backdrop-blur-sm px-8 py-4 rounded-2xl shadow-lg border border-slate-200/50">
+                <Sparkles className="w-6 h-6 text-blue-500" />
+                <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
+                  Powered by ReImagine 
+                </span>
+              </div>
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="text-5xl md:text-7xl font-bold mb-8"
+            >
+              <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
+                Transform Your
+              </span>
+              <br />
+              <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
+                Living Space
+              </span>
+            </motion.h1>
 
             <motion.div
-              className="bg-white/95 backdrop-blur-lg rounded-3xl p-10 shadow-2xl max-w-2xl mx-auto lg:mx-0 border border-slate-200"
-              animate={{ y: [0, -12, 0] }}
-              transition={{ repeat: Infinity, duration: 4 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+              className="mb-12"
             >
               <AnimatePresence mode="wait">
                 <motion.p
                   key={currentQuote}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="text-xl md:text-2xl text-gray-800 italic font-medium leading-relaxed"
+                  exit={{ opacity: 0, y: -10 }}
+                  className="text-xl md:text-2xl text-slate-600 italic font-light"
                 >
                   {quotes[currentQuote]}
                 </motion.p>
               </AnimatePresence>
             </motion.div>
 
-            <p className="mt-8 text-gray-600">One-step solution for your dream space</p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-            className="flex justify-center"
-          >
-            <div className="bg-white/95 backdrop-blur-xl shadow-2xl rounded-3xl p-10 max-w-md w-full border border-slate-200">
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold text-gray-800">Welcome to Reimagine</h2>
-                <p className="text-gray-600 mt-2">Transform your space today</p>
-              </div>
-
-              <Link href="/auth" className="block">
-                <Button
-                  size="lg"
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold text-xl py-8 rounded-2xl shadow-lg transform hover:scale-105 transition"
-                >
-                  Start Your Transformation
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.6 }}
+            >
+              <Link href="/auth">
+                <Button className="group bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white text-lg px-12 py-6 rounded-full font-semibold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105">
+                  <Sparkles className="mr-3 w-5 h-5 group-hover:rotate-12 transition-transform" />
+                  Begin Your Transformation
+                  <ChevronRight className="ml-3 w-5 h-5 group-hover:translate-x-2 transition-transform" />
                 </Button>
               </Link>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-24 bg-white">
+        <div className="container mx-auto px-6">
+          <div className="max-w-4xl mx-auto text-center mb-16">
+            <div className="inline-flex items-center justify-center space-x-2 bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-3 rounded-full mb-6">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <span className="text-sm font-semibold text-blue-600 uppercase tracking-wider">
+                Premium Features
+              </span>
             </div>
-          </motion.div>
-        </div>
-      </section>
+            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+              Redefining <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Luxury Design</span>
+            </h2>
+            <p className="text-lg text-slate-600">
+              Experience the perfect blend of technology and craftsmanship
+            </p>
+          </div>
 
-      {/* CUSTOMIZATION */}
-      <section className="py-24 bg-slate-50 customization-section">
-        <div className="container mx-auto px-4 text-center">
-          <SectionLogo sectionId="customization" logoPosition={logoPosition} />
-          <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent mb-6">
-            Customization: Your Walls, Your Story
-          </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-16">
-            Our expert architects and AI-powered designers bring your vision to life with personalized murals.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {[
-              { icon: '🎨', title: 'Personalized Murals', desc: 'Transform your ideas into bespoke wall designs.' },
-              { icon: '📐', title: 'Architect Precision', desc: 'Perfect proportions for your space.' },
-              { icon: '🖼️', title: 'Visual Harmony', desc: 'Balanced colors and textures.' },
-              { icon: '🧠', title: 'AI Intelligence', desc: 'Real-time design previews.' },
-            ].map((item, i) => (
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
+            {features.map((feature, index) => (
               <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 30 }}
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition border border-slate-100"
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                viewport={{ once: true }}
+                className="group"
               >
-                <div className="text-6xl mb-4">{item.icon}</div>
-                <h3 className="text-2xl font-bold mb-3">{item.title}</h3>
-                <p className="text-gray-600">{item.desc}</p>
+                <div className="bg-gradient-to-b from-white to-slate-50/50 rounded-2xl p-8 border border-slate-200/50 shadow-lg hover:shadow-2xl transition-all duration-300 hover:border-blue-200/50">
+                  <div className="inline-flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl mb-6 group-hover:scale-110 transition-transform duration-300">
+                    <div className="text-blue-600">
+                      {feature.icon}
+                    </div>
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-900 mb-3">
+                    {feature.title}
+                  </h3>
+                  <p className="text-slate-600 text-sm leading-relaxed">
+                    {feature.description}
+                  </p>
+                </div>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* WHY CHOOSE */}
-      <section className="py-24 bg-white why-choose-section">
-        <div className="container mx-auto px-4 text-center">
-          <SectionLogo sectionId="why-choose" logoPosition={logoPosition} />
-          <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent mb-6">
-            Why Choose Ellendorf?
-          </h2>
-          <div className="inline-block bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-10 py-4 rounded-full text-xl font-bold mb-6 shadow-lg">
-            P.U.R.E. Quality Promise
-          </div>
-          <p className="text-lg text-gray-600 mb-16">
-            Porosity • UV-Resistant • Bacteria Resistant • Eco-Friendly
-          </p>
+      {/* Final CTA */}
+      <section className="py-24 bg-gradient-to-br from-slate-50 to-blue-50/50">
+        <div className="container mx-auto px-6">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="relative">
+              <div className="absolute -top-12 -left-12 w-24 h-24 bg-gradient-to-br from-blue-400/20 to-indigo-600/20 rounded-full blur-xl"></div>
+              <div className="absolute -bottom-12 -right-12 w-24 h-24 bg-gradient-to-br from-indigo-400/20 to-blue-600/20 rounded-full blur-xl"></div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {[
-              { icon: '✅', title: 'Porosity', desc: 'Breathable walls for healthy living.' },
-              { icon: '☀️', title: 'UV-Resistant', desc: 'Preserves color against sunlight.' },
-              { icon: '🛡️', title: 'Bacteria Resistant', desc: 'Safe for children and pets.' },
-              { icon: '🌱', title: 'Eco-Friendly', desc: 'Sustainable and chemical-free.' },
-            ].map((item, i) => (
               <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 shadow-xl hover:shadow-2xl transition border border-slate-100"
+                transition={{ duration: 0.6 }}
+                viewport={{ once: true }}
+                className="relative bg-white/80 backdrop-blur-sm rounded-3xl p-12 border border-slate-200/50 shadow-2xl"
               >
-                <div className="text-6xl mb-4">{item.icon}</div>
-                <h3 className="text-2xl font-bold mb-3">{item.title}</h3>
-                <p className="text-gray-700">{item.desc}</p>
+                <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+                  Ready to Transform Your Space?
+                </h2>
+                <p className="text-lg text-slate-600 mb-8 max-w-2xl mx-auto">
+                  Join thousands who have reimagined their living spaces with our premium wall coverings.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Link href="/auth" className="flex-1 sm:flex-none">
+                    <Button className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white px-10 py-6 rounded-full text-lg font-semibold shadow-xl hover:shadow-2xl transition-all duration-300">
+                      Start Free Design
+                    </Button>
+                  </Link>
+                </div>
               </motion.div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* CONTACT / CTA */}
-      <section className="py-32 bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-100 contact-section">
-        <div className="container mx-auto px-4 text-center">
-          <SectionLogo sectionId="contact" logoPosition={logoPosition} />
-          <h2 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent mb-8">
-            Ready to Transform Your Walls?
-          </h2>
-          <p className="text-xl text-gray-700 mb-12 max-w-2xl mx-auto">
-            Discover the art of sustainable design with our premium, AI-powered wallpapers.
-          </p>
-          <Link href="/auth">
-            <Button
-              size="lg"
-              className="bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold text-2xl px-16 py-8 rounded-2xl shadow-2xl transform hover:scale-110 transition"
-            >
-              Get Started Now
-            </Button>
-          </Link>
-        </div>
-      </section>
+      {/* Luxury Footer */}
+      <footer className="bg-gradient-to-b from-white to-slate-100 border-t border-slate-200/50">
+        <div className="container mx-auto px-6 py-12">
+          <div className="flex flex-col md:flex-row items-center justify-between">
+            <div className="mb-6 md:mb-0">
+              <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
+                Ellendorf
+              </div>
+              <p className="text-sm text-slate-500 mt-2">
+                AI-Powered Textile Wall Coverings
+              </p>
+            </div>
 
-      {/* FOOTER */}
-      <footer className="bg-gradient-to-b from-slate-900 to-slate-800 text-white py-12">
-        <div className="container mx-auto px-4 text-center">
-          <h3 className="text-4xl font-bold mb-2">
-            <span>Ellendorf</span>
-            <span className="text-blue-300 ml-2">Textile Wall Coverings</span>
-          </h3>
-          <p className="text-blue-200">AI-Powered Design Solutions</p>
-          <p className="text-sm mt-6 opacity-80">© 2025 Ellendorf. All rights reserved.</p>
+            <div className="text-sm text-slate-500">
+              © {new Date().getFullYear()} Ellendorf. All rights reserved.
+            </div>
+          </div>
         </div>
       </footer>
     </div>
