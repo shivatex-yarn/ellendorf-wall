@@ -48,6 +48,11 @@ export default function Error({
           />
         </div>
 
+        {/* 500 Internal Server Error label */}
+        <p className="text-sm uppercase tracking-[0.3em] text-rose-400/70 font-medium mb-2">
+          Internal Server Error
+        </p>
+
         {/* 500 / error indicator - luxury typography */}
         <div className="flex items-center justify-center gap-3 mb-4">
           <AlertCircle className="w-10 h-10 text-rose-400/80" />

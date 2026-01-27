@@ -35,6 +35,11 @@ export default function NotFound() {
           />
         </div>
 
+        {/* Page Not Found label */}
+        <p className="text-sm uppercase tracking-[0.3em] text-amber-400/70 font-medium mb-2">
+          Page Not Found
+        </p>
+
         {/* 404 number - luxury typography */}
         <p className="text-[clamp(6rem,18vw,12rem)] font-extralight tracking-tighter leading-none bg-gradient-to-b from-amber-200/90 via-amber-100/80 to-slate-300/60 bg-clip-text text-transparent select-none">
           404
