@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from "react";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,6 +20,9 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { AnimatePresence, motion } from "framer-motion";
+
+const WALLPAPER_API_URL = "/api/wallpaper";
+const fetcher = (url) => fetch(url).then((r) => r.json());
 
 // Image cache for preloading
 const imageCache = new Map();
@@ -501,182 +505,146 @@ const CategorySection = React.memo(({
 
 CategorySection.displayName = 'CategorySection';
 
-// Lightbox Component for viewing full-size wallpaper
+// Lightbox Component for viewing full-size wallpaper — smooth open/close via AnimatePresence
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [imageSrc, setImageSrc] = useState("");
 
-  // Preload high-quality image for lightbox
   useEffect(() => {
     if (wallpaper?.imageUrl && isOpen) {
+      setIsImageLoaded(false);
       const loadImage = async () => {
         try {
-          // Don't set isImageLoaded to false here - let the natural loading state handle it
           const cachedUrl = await preloadImage(wallpaper.imageUrl);
           setImageSrc(cachedUrl);
-          // Let the onLoad handler set isImageLoaded to true
         } catch (error) {
           console.error("Failed to load lightbox image:", error);
           setImageSrc(wallpaper.imageUrl);
-          // Let the onError handler handle the loading state
         }
       };
       loadImage();
     }
   }, [wallpaper?.imageUrl, isOpen]);
 
-  if (!isOpen || !wallpaper) return null;
-
-  const handleLikeClick = (e) => {
-    e.stopPropagation();
-    onLike(wallpaper);
-  };
-
-  const handleDownloadClick = (e) => {
-    e.stopPropagation();
-    const link = document.createElement('a');
-    link.href = wallpaper.imageUrl;
-    link.download = `${wallpaper.productCode || wallpaper.name}_wallpaper.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleViewFull = (e) => {
-    e.stopPropagation();
-    window.open(wallpaper.imageUrl, "_blank");
-  };
-
+  // Always render AnimatePresence so exit runs when isOpen becomes false (no early return null)
   return (
     <AnimatePresence mode="wait">
-      {isOpen && (
-        <>
+      {isOpen && wallpaper ? (
+        <motion.div
+          key={`lightbox-${wallpaper.id}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.22, ease: "easeOut" }}
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="fixed inset-0 bg-black/90 z-[60]"
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/90"
             onClick={onClose}
+            aria-hidden
           />
-          
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-            <motion.div
-              layoutId={`card-${wallpaper.id}-${id}`}
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              transition={{ 
-                duration: 0.4, 
-                ease: [0.23, 1, 0.32, 1],
-                opacity: { duration: 0.3 }
-              }}
-              className="relative w-full max-w-6xl max-h-[90vh] bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Controls */}
-              <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
-                <Button
-                  onClick={handleLikeClick}
-                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
-                  size="icon"
-                >
-                  <Heart
-                    className={`w-6 h-6 transition-all duration-200 ${
-                      isLiked ? "fill-red-500 text-red-500" : "text-white"
-                    }`}
+          <motion.div
+            layoutId={`card-${wallpaper.id}-${id}`}
+            initial={{ opacity: 0, scale: 0.92, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.92, y: 14 }}
+            transition={{ duration: 0.32, ease: [0.23, 1, 0.32, 1] }}
+            className="relative z-10 w-full max-w-6xl max-h-[90vh] bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+              <Button
+                onClick={(e) => { e.stopPropagation(); onLike(wallpaper); }}
+                className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                size="icon"
+              >
+                <Heart
+                  className={`w-6 h-6 transition-all duration-200 ${
+                    isLiked ? "fill-red-500 text-red-500" : "text-white"
+                  }`}
+                />
+              </Button>
+              <Button
+                onClick={(e) => { e.stopPropagation(); window.open(wallpaper.imageUrl, "_blank"); }}
+                className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                size="icon"
+              >
+                <Maximize2 className="w-6 h-6 text-white" />
+              </Button>
+              <Button
+                onClick={onClose}
+                className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                size="icon"
+              >
+                <X className="w-6 h-6" />
+              </Button>
+            </div>
+
+            <div className="relative w-full h-full flex items-center justify-center p-4">
+              <motion.div
+                layoutId={`image-${wallpaper.id}-${id}`}
+                className="w-full h-full flex items-center justify-center"
+              >
+                {!isImageLoaded && (
+                  <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-lg" />
+                )}
+                {imageSrc && (
+                  <motion.img
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: isImageLoaded ? 1 : 0 }}
+                    transition={{ duration: 0.25, delay: isImageLoaded ? 0 : 0.08 }}
+                    src={imageSrc}
+                    alt={wallpaper.name}
+                    loading="eager"
+                    className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
+                    onLoad={() => setIsImageLoaded(true)}
+                    onError={() => {
+                      setImageSrc("https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=1200&auto=format&fit=crop");
+                      setIsImageLoaded(true);
+                    }}
                   />
-                </Button>
-
-                <Button
-                  onClick={handleViewFull}
-                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
-                  size="icon"
-                >
-                  <Maximize2 className="w-6 h-6 text-white" />
-                </Button>
-
-                <Button
-                  onClick={onClose}
-                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
-                  size="icon"
-                >
-                  <X className="w-6 h-6" />
-                </Button>
-              </div>
-
-              {/* Image container */}
-              <div className="relative w-full h-full flex items-center justify-center p-4">
-                <motion.div 
-                  layoutId={`image-${wallpaper.id}-${id}`}
-                  className="w-full h-full flex items-center justify-center"
-                >
-                  {!isImageLoaded && (
-                    <motion.div 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-lg"
-                    />
-                  )}
-                  
-                  {imageSrc && (
-                    <motion.img
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: isImageLoaded ? 1 : 0 }}
-                      transition={{ duration: 0.3, delay: isImageLoaded ? 0 : 0.1 }}
-                      src={imageSrc}
-                      alt={wallpaper.name}
-                      loading="eager"
-                      className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                      onLoad={() => setIsImageLoaded(true)}
-                      onError={() => {
-                        setImageSrc("https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=1200&auto=format&fit=crop");
-                        setIsImageLoaded(true);
-                      }}
-                    />
-                  )}
-                </motion.div>
-                
-                {/* Information overlay */}
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2, duration: 0.3 }}
-                  className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6"
-                >
-                  <div className="max-w-2xl mx-auto text-center">
-                    <motion.h3 
-                      layoutId={`title-${wallpaper.id}-${id}`}
-                      className="text-2xl font-bold text-white mb-2"
+                )}
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15, duration: 0.25 }}
+                className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6"
+              >
+                <div className="max-w-2xl mx-auto text-center">
+                  <motion.h3
+                    layoutId={`title-${wallpaper.id}-${id}`}
+                    className="text-2xl font-bold text-white mb-2"
+                  >
+                    {wallpaper.name}
+                  </motion.h3>
+                  {wallpaper.productCode && (
+                    <motion.p
+                      layoutId={`code-${wallpaper.id}-${id}`}
+                      className="text-lg text-blue-300 mb-1"
                     >
-                      {wallpaper.name}
-                    </motion.h3>
-                    {wallpaper.productCode && (
-                      <motion.p 
-                        layoutId={`code-${wallpaper.id}-${id}`}
-                        className="text-lg text-blue-300 mb-1"
-                      >
-                        Code: {wallpaper.productCode}
-                      </motion.p>
-                    )}
-                    {wallpaper.subCategory?.name && (
-                      <p className="text-zinc-300">Collection: {wallpaper.subCategory.name}</p>
-                    )}
-                  </div>
-                </motion.div>
-              </div>
-            </motion.div>
-          </div>
-        </>
-      )}
+                      Code: {wallpaper.productCode}
+                    </motion.p>
+                  )}
+                  {wallpaper.subCategory?.name && (
+                    <p className="text-zinc-300">Collection: {wallpaper.subCategory.name}</p>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
     </AnimatePresence>
   );
 };
 
 export default function EllendorfWallpaperApp() {
   const router = useRouter();
-  const [wallpapers, setWallpapers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
   const [showLikedModal, setShowLikedModal] = useState(false);
   const [showTemplateChoice, setShowTemplateChoice] = useState(false);
@@ -741,36 +709,36 @@ export default function EllendorfWallpaperApp() {
     setLikedWallpapers(prev => prev.filter(w => w.id !== wp.id));
   }, []);
 
+  const { data: wpData, isLoading: swrLoading, error: swrError, mutate } = useSWR(
+    WALLPAPER_API_URL,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60 * 1000,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  const wallpapers = useMemo(() => {
+    if (!wpData || !Array.isArray(wpData)) return [];
+    const active = wpData
+      .filter((w) => w.status?.toLowerCase() === "active")
+      .map((w) => ({ ...w, imageUrl: w.imageUrl || "/placeholder.jpg" }));
+    active.sort((a, b) => {
+      const catA = a.subCategory?.name || "Other";
+      const catB = b.subCategory?.name || "Other";
+      return catA.localeCompare(catB);
+    });
+    return active;
+  }, [wpData]);
+
+  const loading = swrLoading;
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const res = await fetch("http://localhost:4500/api/wallpaper");
-        const wpData = await res.json();
-        const activeWallpapers = wpData
-          .filter((w) => w.status?.toLowerCase() === "active")
-          .map((w) => ({
-            ...w,
-            imageUrl: w.imageUrl || "/placeholder.jpg",
-          }));
-        activeWallpapers.sort((a, b) => {
-          const catA = a.subCategory?.name || "Other";
-          const catB = b.subCategory?.name || "Other";
-          return catA.localeCompare(catB);
-        });
-        setWallpapers(activeWallpapers);
-        
-        // Preload first batch of images
-        const firstBatch = activeWallpapers.slice(0, 24);
-        await Promise.allSettled(firstBatch.map(wp => preloadImage(wp.imageUrl)));
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+    if (wallpapers.length === 0) return;
+    const firstBatch = wallpapers.slice(0, 24);
+    Promise.allSettled(firstBatch.map((wp) => preloadImage(wp.imageUrl)));
+  }, [wallpapers]);
 
   const filteredWallpapers = useMemo(() => {
     if (!searchTerm) return wallpapers;
@@ -1156,8 +1124,19 @@ export default function EllendorfWallpaperApp() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-black">
-        <div className="w-16 h-16 border-4 border-zinc-700 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <div className="w-16 h-16 border-4 border-zinc-700 border-t-blue-600 rounded-full animate-spin mb-4" />
         <div className="text-2xl text-zinc-400">Loading wallpapers...</div>
+      </div>
+    );
+  }
+
+  if (swrError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-black gap-6">
+        <div className="text-xl text-zinc-400 text-center px-4">Could not load the collection. Please try again.</div>
+        <Button onClick={() => mutate()} className="bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-3 rounded-xl">
+          Retry
+        </Button>
       </div>
     );
   }
