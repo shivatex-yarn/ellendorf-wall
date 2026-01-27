@@ -452,7 +452,7 @@ export default function TestimonialsList() {
                   {/* Admin Controls */}
                   {['superadmin', 'admin'].includes(user?.role) && (
                     <div className="mt-8 pt-8 border-t border-slate-200/50">
-                      <Button
+                      {/* <Button
                         onClick={() => handleDelete(selectedTestimonial.id)}
                         disabled={deletingId === selectedTestimonial.id}
                         variant="destructive"
@@ -469,7 +469,7 @@ export default function TestimonialsList() {
                             Delete Testimonial
                           </>
                         )}
-                      </Button>
+                      </Button> */}
                     </div>
                   )}
                 </div>
