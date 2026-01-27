@@ -11,7 +11,7 @@ export default function ProtectedRoute({ children }) {
   useEffect(() => {
     // Wait for auth to finish loading, then check authentication
     if (!loadingUser && !isAuthenticated) {
-      router.push("/auth");
+      router.push("/");
     }
   }, [loadingUser, isAuthenticated, router]);
 
