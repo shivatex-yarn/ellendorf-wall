@@ -46,24 +46,33 @@ export default function Wallpaper() {
     "Crafted for those who appreciate true elegance.",
   ];
 
-  useEffect(() => {
-    const fetchWallpapers = async () => {
-      try {
-        setLoading(true);
-        const res = await fetch('http://localhost:4500/api/wallpaper');
-        if (!res.ok) throw new Error('Failed to fetch');
-        const data = await res.json();
-        const activeOnly = data.filter(w => w.status === 'active');
-        setWallpapers(activeOnly || []);
-      } catch (err) {
-        setError('Unable to load collection. Please try again.');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchWallpapers();
-  }, []);
+useEffect(() => {
+  const fetchWallpapers = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Use environment variable or fallback to localhost
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
+      const res = await fetch(`${baseUrl}/api/wallpaper`);
+
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
+
+      const data = await res.json();
+      const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
+      setWallpapers(activeOnly);
+    } catch (err) {
+      console.error('Error fetching wallpapers:', err);
+      setError('Unable to load collection. Please try again.');
+      setWallpapers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchWallpapers();
+}, []);
+
 
   useEffect(() => {
     const interval = setInterval(() => {
