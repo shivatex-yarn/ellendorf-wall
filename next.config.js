@@ -15,12 +15,19 @@ const nextConfig = {
     ],
   },
 
-
-
   experimental: {
     serverActions: {
-      bodySizeLimit: "70mb", 
+      bodySizeLimit: "70mb",
     },
+  },
+
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: "https://riw-wall-admin-2-4-2.onrender.com/api/:path*",
+      },
+    ];
   },
 };
 
