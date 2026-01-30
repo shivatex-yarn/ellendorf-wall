@@ -13,7 +13,7 @@ const services = [
     features: ['2D Visualization', 'Color Matching', 'Style Consultation']
   },
   {
-    title: 'Custom Wallpaper Design',
+    title: 'Custom Wall Covering Design',
     description: 'Bespoke designs for homes, offices & commercial spaces. Advanced digital tools for precise customization.',
     icon: Sparkles,
     color: 'from-purple-600 to-pink-600',
@@ -38,7 +38,7 @@ const services = [
   },
   {
     title: 'After-Sales Support',
-    description: '5-year warranty on all wallpapers. Easy maintenance with dedicated customer care.',
+    description: '5-year warranty on all wall coverings. Easy maintenance with dedicated customer care.',
     icon: Shield,
     color: 'from-red-600 to-rose-600',
     gradient: 'bg-gradient-to-br from-red-600/20 to-rose-600/10',

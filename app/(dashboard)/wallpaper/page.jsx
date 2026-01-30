@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { jsPDF } from 'jspdf';
+import axios from 'axios'; 
 import { 
   Loader2, 
   Sparkles, 
@@ -46,33 +47,29 @@ export default function Wallpaper() {
     "Crafted for those who appreciate true elegance.",
   ];
 
-useEffect(() => {
-  const fetchWallpapers = async () => {
-    setLoading(true);
-    setError(null);
+  useEffect(() => {
+    const fetchWallpapers = async () => {
+      setLoading(true);
+      setError(null);
 
-    try {
-      // Use environment variable or fallback to localhost
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
-      const res = await fetch(`${baseUrl}/api/wallpaper`);
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
+        const response = await axios.get(`${baseUrl}/api/wallpaper`);
+        
+        const data = response.data;
+        const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
+        setWallpapers(activeOnly);
+      } catch (err) {
+        console.error('Error fetching wallpapers:', err);
+        setError('Unable to load collection. Please try again.');
+        setWallpapers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
-
-      const data = await res.json();
-      const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
-      setWallpapers(activeOnly);
-    } catch (err) {
-      console.error('Error fetching wallpapers:', err);
-      setError('Unable to load collection. Please try again.');
-      setWallpapers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  fetchWallpapers();
-}, []);
-
+    fetchWallpapers();
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -136,7 +133,7 @@ useEffect(() => {
     document.body.removeChild(link);
   };
 
-  // Function to add luxury watermark to image
+ 
   const addLuxuryWatermarkToImage = (imageUrl) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -146,15 +143,11 @@ useEffect(() => {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        
-        // Set canvas size to image size
         canvas.width = img.width;
         canvas.height = img.height;
         
         // Draw original image
         ctx.drawImage(img, 0, 0, img.width, img.height);
-        
-        // Add STRONGER luxury watermark - Center position
         ctx.save();
         
         // Calculate center position
@@ -166,7 +159,6 @@ useEffect(() => {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(centerX - 380, centerY - 110, 760, 220);
 
-        // Main luxury branding (single line)
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
         ctx.font = "bold 78px 'Times New Roman', serif";
@@ -185,7 +177,7 @@ useEffect(() => {
           centerY
         );
 
-        // Reset shadow before drawing lines
+       
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
 
@@ -198,11 +190,11 @@ useEffect(() => {
         ctx.lineTo(centerX + 220, centerY + 55);
         ctx.stroke();
 
-        // Sub branding
+       
         ctx.font = "italic 32px 'Times New Roman', serif";
         ctx.fillText("Textile Wall Coverings", centerX, centerY + 35);
         
-        // STRONGER Divider line
+       
         ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -210,11 +202,11 @@ useEffect(() => {
         ctx.lineTo(centerX + 120, centerY + 10);
         ctx.stroke();
         
-        // STRONGER Powered by text
+   
         ctx.font = "italic 28px 'Times New Roman', serif";
         ctx.fillText("Premium Collection", centerX, centerY + 45);
         
-        // Add subtle pattern overlay (more visible)
+      
         ctx.globalAlpha = 0.08;
         ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
         for (let i = 0; i < 6; i++) {
@@ -225,27 +217,24 @@ useEffect(() => {
         
         ctx.restore();
         
-        // STRONGER corner accents
+     
         ctx.save();
         ctx.globalAlpha = 0.15;
         ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
         ctx.lineWidth = 3;
         
-        // Top-left corner
         ctx.beginPath();
         ctx.moveTo(40, 40);
         ctx.lineTo(120, 40);
         ctx.lineTo(40, 120);
         ctx.stroke();
-        
-        // Top-right corner
+       
         ctx.beginPath();
         ctx.moveTo(canvas.width - 40, 40);
         ctx.lineTo(canvas.width - 120, 40);
         ctx.lineTo(canvas.width - 40, 120);
         ctx.stroke();
-        
-        // Bottom-left corner
+        r
         ctx.beginPath();
         ctx.moveTo(40, canvas.height - 40);
         ctx.lineTo(40, canvas.height - 120);
@@ -261,7 +250,7 @@ useEffect(() => {
         
         ctx.restore();
         
-        // Convert canvas to data URL with good quality
+        
         const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
         resolve(watermarkedImage);
       };
@@ -312,13 +301,20 @@ useEffect(() => {
       doc.setLineWidth(4);
       doc.line(pageWidth / 2 - 140, 140, pageWidth / 2 + 140, 140);
       
-      doc.setFontSize(32);
-      doc.setFont("times", "italic");
-      doc.text("Textile Wall Coverings", pageWidth / 2, 180, { align: "center" });
-      
-      doc.setFontSize(24);
-      doc.setFont("helvetica", "normal");
-      doc.text("Premium Collection", pageWidth / 2, 220, { align: "center" });
+     // space BETWEEN the two lines
+
+doc.setFontSize(32);
+doc.setFont("times", "italic");
+doc.text("Textile Wall Coverings", pageWidth / 2, startY, {
+  align: "center",
+});
+
+doc.setFontSize(24);
+doc.setFont("helvetica", "normal");
+doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
+  align: "center",
+});
+
       
       // Add decorative element
       doc.setFillColor(245, 245, 245);

@@ -63,7 +63,7 @@ export default function LuxuryLandingPage() {
           </div>
           <Link href="/auth">
             <Button className="bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white px-6 py-2 rounded-full font-medium shadow-lg hover:shadow-xl transition-all duration-300">
-              Start Designing
+              Start Exploring
               <ChevronRight className="ml-2 w-4 h-4" />
             </Button>
           </Link>
@@ -215,7 +215,8 @@ export default function LuxuryLandingPage() {
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Link href="/auth" className="flex-1 sm:flex-none">
                     <Button className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white px-10 py-6 rounded-full text-lg font-semibold shadow-xl hover:shadow-2xl transition-all duration-300">
-                      Start Free Design
+                      Start Exploring
+                      <ChevronRight className="ml-3 w-5 h-5" />
                     </Button>
                   </Link>
                 </div>
