@@ -518,7 +518,7 @@ const CategorySection = React.memo(({
   setPageByCategory,
   onCardClick,
   onLike,
-  likedWallpapers,
+  likedIdsSet,
   highlightedProductCode,
   id 
 }) => {
@@ -644,7 +644,7 @@ const CategorySection = React.memo(({
             index={idx}
             onClick={onCardClick}
             onLike={onLike}
-            isLiked={likedIdsSet.has(wp.id)}
+            isLiked={likedIdsSet?.has(wp.id) || false}
             isHighlighted={wp.productCode === highlightedProductCode}
             id={id}
           />
@@ -1691,7 +1691,7 @@ try {
                   setPageByCategory={setPageByCategory}
                   onCardClick={handleCardClick}
                   onLike={toggleLike}
-                  likedWallpapers={likedWallpapers}
+                  likedIdsSet={likedIdsSet}
                   highlightedProductCode={highlightedProductCode}
                   id={id}
                 />
