@@ -123,3 +123,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Performance optimizations for image loading */
+@layer utilities {
+  img {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 1000px;
+  }
+  
+  /* Smooth scrolling for better UX */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Optimize image rendering */
+  img[loading="lazy"] {
+    content-visibility: auto;
+  }
+}

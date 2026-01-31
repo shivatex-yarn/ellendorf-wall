@@ -23,10 +23,11 @@ import { AnimatePresence, motion } from "framer-motion";
 
 // Enhanced Image Cache with LRU (Least Recently Used) strategy
 class ImageCache {
-  constructor(maxSize = 100) {
+  constructor(maxSize = 500) {
     this.cache = new Map();
     this.maxSize = maxSize;
     this.accessOrder = [];
+    this.loadingPromises = new Map(); // Track ongoing loads to prevent duplicates
   }
 
   has(key) {
@@ -49,6 +50,7 @@ class ImageCache {
       const lruKey = this.accessOrder.shift();
       if (lruKey) {
         this.cache.delete(lruKey);
+        this.loadingPromises.delete(lruKey);
       }
     }
     
@@ -60,34 +62,53 @@ class ImageCache {
       const oldKey = this.accessOrder.shift();
       if (oldKey) {
         this.cache.delete(oldKey);
+        this.loadingPromises.delete(oldKey);
       }
     }
+  }
+
+  getLoadingPromise(key) {
+    return this.loadingPromises.get(key);
+  }
+
+  setLoadingPromise(key, promise) {
+    this.loadingPromises.set(key, promise);
   }
 
   clear() {
     this.cache.clear();
     this.accessOrder = [];
+    this.loadingPromises.clear();
   }
 }
 
-const imageCache = new ImageCache(200); // Increased cache size
+const imageCache = new ImageCache(500); // Increased cache size for 1000 images
 
-// Fixed preload image function with better caching
-const preloadImage = (url) => {
+// Optimized preload image function with better caching and priority loading
+const preloadImage = (url, priority = false) => {
   return new Promise((resolve, reject) => {
     // Check cache first
     if (imageCache.has(url)) {
       const cachedValue = imageCache.get(url);
       if (cachedValue === null) {
-        // If cached value is null (failed), retry
-        loadImage();
+        // If cached value is null (failed), don't retry automatically
+        reject(new Error(`Image previously failed: ${url}`));
+        return;
       } else if (cachedValue instanceof Promise) {
         // If it's a pending promise, wait for it
         cachedValue.then(resolve).catch(reject);
+        return;
       } else {
         // If it's already loaded, resolve immediately
         resolve(cachedValue);
+        return;
       }
+    }
+
+    // Check if there's already a loading promise
+    const existingPromise = imageCache.getLoadingPromise(url);
+    if (existingPromise) {
+      existingPromise.then(resolve).catch(reject);
       return;
     }
 
@@ -96,26 +117,52 @@ const preloadImage = (url) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       
+      // Use fetchpriority for priority images
+      if (priority && 'fetchPriority' in img) {
+        img.fetchPriority = 'high';
+      }
+      
       img.onload = () => {
         imageCache.set(url, url);
+        imageCache.loadingPromises.delete(url);
         resolveLoad(url);
       };
       
       img.onerror = (error) => {
-        console.warn(`Failed to load image: ${url}`, error);
         imageCache.set(url, null); // Cache null to prevent repeated failed attempts
+        imageCache.loadingPromises.delete(url);
         rejectLoad(new Error(`Failed to load image: ${url}`));
       };
       
+      // Start loading
       img.src = url;
     });
 
     // Store the promise in cache
-    imageCache.set(url, imagePromise);
+    imageCache.setLoadingPromise(url, imagePromise);
     
     // Wait for the image to load
     imagePromise.then(resolve).catch(reject);
   });
+};
+
+// Batch preload images with concurrency control
+const preloadImagesBatch = async (urls, concurrency = 6, priority = false) => {
+  const results = [];
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    const batchPromises = batch.map(url => 
+      preloadImage(url, priority).catch(() => null)
+    );
+    const batchResults = await Promise.allSettled(batchPromises);
+    results.push(...batchResults);
+    
+    // Small delay between batches to prevent overwhelming the browser
+    if (i + concurrency < urls.length) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+  return results;
 };
 
 // Customer Name Dialog Component
@@ -193,7 +240,7 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// WallpaperCard Component - Fixed to prevent reloading
+// WallpaperCard Component - Optimized with Intersection Observer for lazy loading
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageState, setImageState] = useState({
@@ -201,12 +248,14 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
     isLoading: true,
     isError: false
   });
+  const imgRef = useRef(null);
+  const observerRef = useRef(null);
 
-  // Fixed: Only load image when it changes, using cache properly
+  // Optimized: Use Intersection Observer for lazy loading + cache check
   useEffect(() => {
     let isMounted = true;
     
-    const loadImage = async () => {
+    const loadImage = async (priority = false) => {
       if (!wp.imageUrl) {
         if (isMounted) {
           setImageState({
@@ -231,12 +280,36 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         return;
       }
 
+      // If there's a pending promise, wait for it
+      const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
+      if (loadingPromise) {
+        try {
+          const loadedUrl = await loadingPromise;
+          if (isMounted) {
+            setImageState({
+              src: loadedUrl,
+              isLoading: false,
+              isError: false
+            });
+          }
+        } catch (error) {
+          if (isMounted) {
+            setImageState({
+              src: "/placeholder.jpg",
+              isLoading: false,
+              isError: true
+            });
+          }
+        }
+        return;
+      }
+
       if (isMounted) {
         setImageState(prev => ({ ...prev, isLoading: true }));
       }
 
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl);
+        const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 12);
         if (isMounted) {
           setImageState({
             src: loadedUrl,
@@ -245,7 +318,6 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
           });
         }
       } catch (error) {
-        console.warn("Failed to load image:", wp.imageUrl, error);
         if (isMounted) {
           setImageState({
             src: "/placeholder.jpg",
@@ -256,12 +328,43 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }
     };
 
-    loadImage();
+    // Load immediately if it's in the first batch (above the fold)
+    if (index < 12) {
+      loadImage(true);
+    } else {
+      // Use Intersection Observer for lazy loading
+      if (typeof IntersectionObserver !== 'undefined' && imgRef.current) {
+        observerRef.current = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting && isMounted) {
+                loadImage(false);
+                if (observerRef.current && imgRef.current) {
+                  observerRef.current.unobserve(imgRef.current);
+                }
+              }
+            });
+          },
+          {
+            rootMargin: '50px', // Start loading 50px before entering viewport
+            threshold: 0.01
+          }
+        );
+        
+        observerRef.current.observe(imgRef.current);
+      } else {
+        // Fallback: load immediately if IntersectionObserver not available
+        loadImage(false);
+      }
+    }
 
     return () => {
       isMounted = false;
+      if (observerRef.current && imgRef.current) {
+        observerRef.current.unobserve(imgRef.current);
+      }
     };
-  }, [wp.imageUrl]); // Only depend on imageUrl
+  }, [wp.imageUrl, index]); // Include index for priority loading
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -309,12 +412,17 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       )}
 
       {/* Main image */}
-      <motion.div layoutId={compact ? undefined : `image-${wp.id}-${id}`} className="w-full h-full">
+      <motion.div 
+        ref={imgRef}
+        layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
+        className="w-full h-full"
+      >
         {imageState.src && !imageState.isLoading && !imageState.isError && (
           <img
             src={imageState.src}
             alt={wp.name}
             loading={index < 12 ? "eager" : "lazy"}
+            fetchPriority={index < 12 ? "high" : "auto"}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
@@ -354,18 +462,20 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
 WallpaperCard.displayName = 'WallpaperCard';
 
-// Compact Wallpaper Card for Liked Modal
+// Compact Wallpaper Card for Liked Modal - Optimized
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageState, setImageState] = useState({
     src: "",
     isLoading: true
   });
+  const imgRef = useRef(null);
+  const observerRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
     
-    const loadImage = async () => {
+    const loadImage = async (priority = false) => {
       if (!wp.imageUrl) {
         if (isMounted) {
           setImageState({
@@ -388,12 +498,34 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         return;
       }
 
+      // If there's a pending promise, wait for it
+      const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
+      if (loadingPromise) {
+        try {
+          const loadedUrl = await loadingPromise;
+          if (isMounted) {
+            setImageState({
+              src: loadedUrl,
+              isLoading: false
+            });
+          }
+        } catch (error) {
+          if (isMounted) {
+            setImageState({
+              src: "/placeholder.jpg",
+              isLoading: false
+            });
+          }
+        }
+        return;
+      }
+
       if (isMounted) {
         setImageState(prev => ({ ...prev, isLoading: true }));
       }
 
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl);
+        const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 20);
         if (isMounted) {
           setImageState({
             src: loadedUrl,
@@ -401,7 +533,6 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
           });
         }
       } catch (error) {
-        console.warn("Failed to load image:", wp.imageUrl, error);
         if (isMounted) {
           setImageState({
             src: "/placeholder.jpg",
@@ -411,12 +542,42 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
       }
     };
 
-    loadImage();
+    // Load immediately if visible (first 20 items)
+    if (index < 20) {
+      loadImage(true);
+    } else {
+      // Use Intersection Observer for lazy loading
+      if (typeof IntersectionObserver !== 'undefined' && imgRef.current) {
+        observerRef.current = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting && isMounted) {
+                loadImage(false);
+                if (observerRef.current && imgRef.current) {
+                  observerRef.current.unobserve(imgRef.current);
+                }
+              }
+            });
+          },
+          {
+            rootMargin: '50px',
+            threshold: 0.01
+          }
+        );
+        
+        observerRef.current.observe(imgRef.current);
+      } else {
+        loadImage(false);
+      }
+    }
 
     return () => {
       isMounted = false;
+      if (observerRef.current && imgRef.current) {
+        observerRef.current.unobserve(imgRef.current);
+      }
     };
-  }, [wp.imageUrl]);
+  }, [wp.imageUrl, index]);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -440,6 +601,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
     >
       {/* Image container */}
       <div 
+        ref={imgRef}
         className="relative aspect-[4/3] overflow-hidden"
         onClick={handleClick}
       >
@@ -453,7 +615,10 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
           <img
             src={imageState.src}
             alt={wp.name}
+            loading={index < 20 ? "eager" : "lazy"}
+            fetchPriority={index < 20 ? "high" : "auto"}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+            decoding="async"
             onError={(e) => {
               e.target.src = "/placeholder.jpg";
             }}
@@ -533,28 +698,60 @@ const CategorySection = React.memo(({
     [categoryItems, start]
   );
 
-  // FIXED: Preload images for ALL pages when component mounts
+  // Optimized: Preload visible images first, then adjacent pages
   useEffect(() => {
     if (!categoryItems.length) return;
     
-    const preloadAllCategoryImages = async () => {
-      // Preload all images in this category (not just visible ones)
-      const preloadPromises = categoryItems.map(wp => {
-        if (wp.imageUrl) {
-          return preloadImage(wp.imageUrl).catch(() => {
-            // Silently handle individual image failures
-            return null;
-          });
-        }
-        return Promise.resolve(null);
-      });
+    const preloadCategoryImages = async () => {
+      // Priority 1: Preload visible images immediately
+      const visibleUrls = visibleItems
+        .filter(wp => wp.imageUrl)
+        .map(wp => wp.imageUrl);
       
-      // Don't await - let it run in background
-      Promise.allSettled(preloadPromises);
+      if (visibleUrls.length > 0) {
+        preloadImagesBatch(visibleUrls, 6, true);
+      }
+      
+      // Priority 2: Preload next/previous page images in background
+      const nextPageStart = Math.min(start + itemsPerPage, categoryItems.length);
+      const prevPageStart = Math.max(0, start - itemsPerPage);
+      
+      const nextPageItems = categoryItems.slice(nextPageStart, nextPageStart + itemsPerPage);
+      const prevPageItems = categoryItems.slice(prevPageStart, prevPageStart + itemsPerPage);
+      
+      const adjacentUrls = [
+        ...nextPageItems.filter(wp => wp.imageUrl).map(wp => wp.imageUrl),
+        ...prevPageItems.filter(wp => wp.imageUrl).map(wp => wp.imageUrl)
+      ];
+      
+      if (adjacentUrls.length > 0) {
+        // Load adjacent pages with lower priority
+        setTimeout(() => {
+          preloadImagesBatch(adjacentUrls, 4, false);
+        }, 100);
+      }
+      
+      // Priority 3: Preload remaining images in background (throttled)
+      const remainingUrls = categoryItems
+        .filter((wp, idx) => {
+          const itemStart = Math.floor(idx / itemsPerPage) * itemsPerPage;
+          return itemStart !== start && 
+                 itemStart !== nextPageStart && 
+                 itemStart !== prevPageStart &&
+                 wp.imageUrl;
+        })
+        .map(wp => wp.imageUrl);
+      
+      if (remainingUrls.length > 0) {
+        // Load remaining images slowly in background
+        setTimeout(() => {
+          preloadImagesBatch(remainingUrls, 3, false);
+        }, 500);
+      }
     };
     
-    preloadAllCategoryImages();
-  }, [categoryItems]); // Only run when categoryItems changes
+    preloadCategoryImages();
+  }, [categoryItems, start, visibleItems, itemsPerPage]); // Include start and visibleItems
 
   // Check if this category contains the highlighted product
   const containsHighlightedProduct = useMemo(() => {
@@ -573,7 +770,7 @@ const CategorySection = React.memo(({
     }
   }, [containsHighlightedProduct, currentPage]);
 
-  // Handle page change - FIXED to not cause reloads
+  // Handle page change - Optimized with immediate preloading
   const handlePageChange = useCallback((direction) => {
     let newPage = currentPage;
     if (direction === 'prev' && currentPage > 0) {
@@ -584,9 +781,34 @@ const CategorySection = React.memo(({
       return;
     }
     
+    // Immediately preload images for the new page
+    const newPageStart = newPage * itemsPerPage;
+    const newPageItems = categoryItems.slice(newPageStart, newPageStart + itemsPerPage);
+    const newPageUrls = newPageItems
+      .filter(wp => wp.imageUrl)
+      .map(wp => wp.imageUrl);
+    
+    // Preload with high priority
+    if (newPageUrls.length > 0) {
+      preloadImagesBatch(newPageUrls, 6, true);
+    }
+    
+    // Also preload the page after the new page
+    const nextNextPageStart = Math.min(newPageStart + itemsPerPage, categoryItems.length);
+    const nextNextPageItems = categoryItems.slice(nextNextPageStart, nextNextPageStart + itemsPerPage);
+    const nextNextPageUrls = nextNextPageItems
+      .filter(wp => wp.imageUrl)
+      .map(wp => wp.imageUrl);
+    
+    if (nextNextPageUrls.length > 0) {
+      setTimeout(() => {
+        preloadImagesBatch(nextNextPageUrls, 4, false);
+      }, 50);
+    }
+    
     // Update page state - this will trigger visibleItems update
     setPageByCategory(prev => ({ ...prev, [category]: newPage }));
-  }, [category, currentPage, totalPages, setPageByCategory]);
+  }, [category, currentPage, totalPages, setPageByCategory, categoryItems, itemsPerPage]);
 
   return (
     <section key={category} className="mb-4" ref={sectionRef}>
@@ -617,18 +839,22 @@ const CategorySection = React.memo(({
         )}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        {visibleItems.map((wp, idx) => (
-          <WallpaperCard 
-            key={`${wp.id}-${currentPage}-${idx}`} 
-            wp={wp} 
-            index={idx}
-            onClick={onCardClick}
-            onLike={onLike}
-            isLiked={likedWallpapers.some(w => w.id === wp.id)}
-            isHighlighted={wp.productCode === highlightedProductCode}
-            id={id}
-          />
-        ))}
+        {visibleItems.map((wp, idx) => {
+          // Calculate global index for priority loading
+          const globalIndex = start + idx;
+          return (
+            <WallpaperCard 
+              key={`${wp.id}-${currentPage}-${idx}`} 
+              wp={wp} 
+              index={globalIndex}
+              onClick={onCardClick}
+              onLike={onLike}
+              isLiked={likedWallpapers.some(w => w.id === wp.id)}
+              isHighlighted={wp.productCode === highlightedProductCode}
+              id={id}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -955,13 +1181,40 @@ export default function EllendorfWallpaperApp() {
         
         setWallpapers(activeWallpapers);
         
-        // Preload first batch of images in background
+        // Optimized: Preload first batch with high priority, then continue in background
         const firstBatch = activeWallpapers.slice(0, 24);
-        setTimeout(() => {
-          Promise.allSettled(
-            firstBatch.map(wp => preloadImage(wp.imageUrl).catch(() => null))
-          );
-        }, 500);
+        const firstBatchUrls = firstBatch
+          .filter(wp => wp.imageUrl)
+          .map(wp => wp.imageUrl);
+        
+        if (firstBatchUrls.length > 0) {
+          // Load first batch immediately with high priority
+          preloadImagesBatch(firstBatchUrls, 6, true);
+          
+          // Continue loading next batches in background
+          setTimeout(() => {
+            const secondBatch = activeWallpapers.slice(24, 48);
+            const secondBatchUrls = secondBatch
+              .filter(wp => wp.imageUrl)
+              .map(wp => wp.imageUrl);
+            
+            if (secondBatchUrls.length > 0) {
+              preloadImagesBatch(secondBatchUrls, 4, false);
+            }
+          }, 200);
+          
+          // Load remaining images slowly in background
+          setTimeout(() => {
+            const remainingUrls = activeWallpapers
+              .slice(48)
+              .filter(wp => wp.imageUrl)
+              .map(wp => wp.imageUrl);
+            
+            if (remainingUrls.length > 0) {
+              preloadImagesBatch(remainingUrls, 3, false);
+            }
+          }, 1000);
+        }
       } catch (err) {
         console.error("Failed to fetch wallpapers:", err);
         setError("Failed to load wallpaper data. Please check your connection.");
@@ -1708,4 +1961,5 @@ try {
       </footer>
     </div>
   );
+}
 }
