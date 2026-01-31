@@ -20,103 +20,21 @@ import {
 import { jsPDF } from "jspdf";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
+import { preloadImage, default as imageCache } from "@/lib/imageCache";
+import { useAuth } from "../layout/authcontent";
 
-// Enhanced Image Cache with LRU (Least Recently Used) strategy
-class ImageCache {
-  constructor(maxSize = 100) {
-    this.cache = new Map();
-    this.maxSize = maxSize;
-    this.accessOrder = [];
-  }
-
-  has(key) {
-    return this.cache.has(key);
-  }
-
-  get(key) {
-    if (this.cache.has(key)) {
-      // Move to end of access order (most recently used)
-      this.accessOrder = this.accessOrder.filter(k => k !== key);
-      this.accessOrder.push(key);
-      return this.cache.get(key);
-    }
-    return null;
-  }
-
-  set(key, value) {
-    if (this.cache.size >= this.maxSize) {
-      // Remove least recently used item
-      const lruKey = this.accessOrder.shift();
-      if (lruKey) {
-        this.cache.delete(lruKey);
-      }
-    }
-    
-    this.cache.set(key, value);
-    this.accessOrder.push(key);
-    
-    // Clean up old entries if they exceed max size
-    while (this.accessOrder.length > this.maxSize) {
-      const oldKey = this.accessOrder.shift();
-      if (oldKey) {
-        this.cache.delete(oldKey);
-      }
-    }
-  }
-
-  clear() {
-    this.cache.clear();
-    this.accessOrder = [];
-  }
+// Debounce utility
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
 }
-
-const imageCache = new ImageCache(200); // Increased cache size
-
-// Fixed preload image function with better caching
-const preloadImage = (url) => {
-  return new Promise((resolve, reject) => {
-    // Check cache first
-    if (imageCache.has(url)) {
-      const cachedValue = imageCache.get(url);
-      if (cachedValue === null) {
-        // If cached value is null (failed), retry
-        loadImage();
-      } else if (cachedValue instanceof Promise) {
-        // If it's a pending promise, wait for it
-        cachedValue.then(resolve).catch(reject);
-      } else {
-        // If it's already loaded, resolve immediately
-        resolve(cachedValue);
-      }
-      return;
-    }
-
-    // Create a promise for this image
-    const imagePromise = new Promise((resolveLoad, rejectLoad) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      
-      img.onload = () => {
-        imageCache.set(url, url);
-        resolveLoad(url);
-      };
-      
-      img.onerror = (error) => {
-        console.warn(`Failed to load image: ${url}`, error);
-        imageCache.set(url, null); // Cache null to prevent repeated failed attempts
-        rejectLoad(new Error(`Failed to load image: ${url}`));
-      };
-      
-      img.src = url;
-    });
-
-    // Store the promise in cache
-    imageCache.set(url, imagePromise);
-    
-    // Wait for the image to load
-    imagePromise.then(resolve).catch(reject);
-  });
-};
 
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
@@ -193,35 +111,56 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// WallpaperCard Component - Fixed to prevent reloading
+// Intersection Observer hook for lazy loading
+function useIntersectionObserver(ref, options = {}) {
+  const [isIntersecting, setIsIntersecting] = useState(false);
+
+  useEffect(() => {
+    if (!ref.current) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsIntersecting(entry.isIntersecting);
+    }, {
+      rootMargin: '50px',
+      threshold: 0.01,
+      ...options,
+    });
+
+    observer.observe(ref.current);
+
+    return () => {
+      if (ref.current) {
+        observer.unobserve(ref.current);
+      }
+    };
+  }, [ref, options]);
+
+  return isIntersecting;
+}
+
+// WallpaperCard Component - Optimized with intersection observer and persistent cache
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageState, setImageState] = useState({
     src: "",
-    isLoading: true,
+    isLoading: false, // No loading state - images preload silently
     isError: false
   });
+  const cardRef = useRef(null);
+  const isVisible = useIntersectionObserver(cardRef, { rootMargin: '200px' }); // Increased margin for smoother loading
 
-  // Fixed: Only load image when it changes, using cache properly
+  // Optimized image loading with priority
   useEffect(() => {
     let isMounted = true;
+    let cancelled = false;
     
     const loadImage = async () => {
-      if (!wp.imageUrl) {
-        if (isMounted) {
-          setImageState({
-            src: "/placeholder.jpg",
-            isLoading: false,
-            isError: false
-          });
-        }
-        return;
-      }
+      if (!wp.imageUrl || cancelled) return;
 
-      // Check cache first
+      // Check in-memory cache first
       const cachedValue = imageCache.get(wp.imageUrl);
       if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
-        if (isMounted) {
+        if (isMounted && !cancelled) {
           setImageState({
             src: cachedValue,
             isLoading: false,
@@ -231,13 +170,33 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         return;
       }
 
-      if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true }));
+      // Check persistent cache (non-blocking)
+      try {
+        const persistentCached = await imageCache.getPersistent(wp.imageUrl);
+        if (persistentCached && isMounted && !cancelled) {
+          imageCache.set(wp.imageUrl, persistentCached);
+          setImageState({
+            src: persistentCached,
+            isLoading: false,
+            isError: false
+          });
+          return;
+        }
+      } catch (error) {
+        // Continue to network
       }
 
+      // Preload image silently (no loading state shown)
+      // Only set image source once it's fully loaded
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl);
-        if (isMounted) {
+        const priority = index < 12 ? 10 : (isVisible ? 5 : 0); // Higher priority for visible/early items
+        const loadedUrl = await preloadImage(wp.imageUrl, { 
+          retry: true, 
+          timeout: 8000, // Reduced timeout for faster failure
+          priority 
+        });
+        
+        if (isMounted && !cancelled) {
           setImageState({
             src: loadedUrl,
             isLoading: false,
@@ -245,8 +204,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
           });
         }
       } catch (error) {
-        console.warn("Failed to load image:", wp.imageUrl, error);
-        if (isMounted) {
+        if (isMounted && !cancelled) {
           setImageState({
             src: "/placeholder.jpg",
             isLoading: false,
@@ -256,12 +214,17 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }
     };
 
-    loadImage();
+    // Only load if visible or if it's one of the first 12 images
+    // AND only if user is authenticated (check via parent context)
+    if ((isVisible || index < 12)) {
+      loadImage();
+    }
 
     return () => {
+      cancelled = true;
       isMounted = false;
     };
-  }, [wp.imageUrl]); // Only depend on imageUrl
+  }, [wp.imageUrl, isVisible, index]); // Include isVisible and index
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -277,53 +240,55 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
   return (
     <motion.div
+      ref={cardRef}
       layoutId={compact ? undefined : `card-${wp.id}-${id}`}
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      exit={{ opacity: 0, scale: 0.98 }}
       transition={{ 
-        duration: 0.3,
-        delay: index * 0.01,
-        ease: "easeOut"
+        duration: 0.2,
+        delay: Math.min(index * 0.005, 0.1), // Cap delay at 100ms
+        ease: [0.25, 0.1, 0.25, 1], // Custom easing for smoother feel
+        layout: { duration: 0.2 } // Faster layout animations
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`group relative bg-zinc-900/90 overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:scale-105 hover:shadow-2xl border-2 aspect-[16/9] w-full rounded-2xl shadow-xl ${
+      style={{ willChange: 'transform, opacity' }} // Optimize for GPU
+      className={`group relative bg-zinc-900/90 overflow-hidden cursor-pointer transition-transform duration-200 ease-out hover:scale-[1.03] hover:shadow-2xl border-2 aspect-[16/9] w-full rounded-2xl shadow-xl ${
         isHighlighted 
-          ? 'border-blue-500 ring-4 ring-blue-500/20 scale-105 z-10' 
+          ? 'border-blue-500 ring-4 ring-blue-500/20 scale-[1.03] z-10' 
           : 'border-zinc-800'
       } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
       onClick={handleClick}
     >
       {/* Loading/Error state */}
-      {imageState.isLoading && (
-        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
-          <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
-        </div>
-      )}
-      
-      {imageState.isError && (
-        <div className={`absolute inset-0 bg-zinc-800 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
-          <span className="text-zinc-500 text-xs">Failed to load</span>
-        </div>
-      )}
-
-      {/* Main image */}
-      <motion.div layoutId={compact ? undefined : `image-${wp.id}-${id}`} className="w-full h-full">
-        {imageState.src && !imageState.isLoading && !imageState.isError && (
+      {/* Main image - only show when ready, no loading state */}
+      <motion.div 
+        layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
+        className="w-full h-full"
+        style={{ willChange: 'transform' }}
+      >
+        {imageState.src ? (
           <img
             src={imageState.src}
             alt={wp.name}
             loading={index < 12 ? "eager" : "lazy"}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
+            className={`w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-110 ${
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
+            style={{ 
+              willChange: 'transform',
+              transform: 'translateZ(0)',
+            }}
             crossOrigin="anonymous"
             decoding="async"
             onError={(e) => {
               e.target.src = "/placeholder.jpg";
             }}
           />
+        ) : (
+          // Subtle placeholder background while preloading (no spinner)
+          <div className={`w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 ${compact ? 'rounded-lg' : 'rounded-2xl'}`} />
         )}
       </motion.div>
 
@@ -350,6 +315,15 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       </div>
     </motion.div>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison for better memoization
+  return (
+    prevProps.wp.id === nextProps.wp.id &&
+    prevProps.wp.imageUrl === nextProps.wp.imageUrl &&
+    prevProps.isLiked === nextProps.isLiked &&
+    prevProps.isHighlighted === nextProps.isHighlighted &&
+    prevProps.index === nextProps.index
+  );
 });
 
 WallpaperCard.displayName = 'WallpaperCard';
@@ -359,8 +333,10 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageState, setImageState] = useState({
     src: "",
-    isLoading: true
+    isLoading: false // No loading state - images preload silently
   });
+  const cardRef = useRef(null);
+  const isVisible = useIntersectionObserver(cardRef, { rootMargin: '50px' });
 
   useEffect(() => {
     let isMounted = true;
@@ -376,7 +352,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         return;
       }
 
-      // Check cache first
+      // Check in-memory cache first
       const cachedValue = imageCache.get(wp.imageUrl);
       if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
         if (isMounted) {
@@ -388,12 +364,24 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         return;
       }
 
-      if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true }));
+      // Check persistent cache
+      try {
+        const persistentCached = await imageCache.getPersistent(wp.imageUrl);
+        if (persistentCached && isMounted) {
+          imageCache.set(wp.imageUrl, persistentCached);
+          setImageState({
+            src: persistentCached,
+            isLoading: false
+          });
+          return;
+        }
+      } catch (error) {
+        // Continue to load from network
       }
 
+      // Preload silently (no loading state)
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl);
+        const loadedUrl = await preloadImage(wp.imageUrl, { retry: true, priority: 5 });
         if (isMounted) {
           setImageState({
             src: loadedUrl,
@@ -411,12 +399,15 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
       }
     };
 
-    loadImage();
+    // Load when visible
+    if (isVisible) {
+      loadImage();
+    }
 
     return () => {
       isMounted = false;
     };
-  }, [wp.imageUrl]);
+  }, [wp.imageUrl, isVisible]);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -430,34 +421,40 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
+      ref={cardRef}
+      initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      transition={{ duration: 0.2, delay: index * 0.02 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ 
+        duration: 0.15, 
+        delay: Math.min(index * 0.01, 0.1),
+        ease: [0.25, 0.1, 0.25, 1]
+      }}
+      style={{ willChange: 'transform, opacity' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="group relative bg-zinc-800/50 rounded-lg overflow-hidden cursor-pointer border border-zinc-700/50 hover:border-zinc-600 transition-all duration-200"
+      className="group relative bg-zinc-800/50 rounded-lg overflow-hidden cursor-pointer border border-zinc-700/50 hover:border-zinc-600 transition-transform duration-150"
     >
       {/* Image container */}
       <div 
         className="relative aspect-[4/3] overflow-hidden"
         onClick={handleClick}
       >
-        {imageState.isLoading && (
-          <div className="absolute inset-0 bg-zinc-800 flex items-center justify-center">
-            <div className="w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
-          </div>
-        )}
-        
-        {imageState.src && !imageState.isLoading && (
+        {imageState.src ? (
           <img
             src={imageState.src}
             alt={wp.name}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+            className="w-full h-full object-cover transition-transform duration-200 ease-out group-hover:scale-110"
+            style={{ 
+              willChange: 'transform',
+              transform: 'translateZ(0)',
+            }}
             onError={(e) => {
               e.target.src = "/placeholder.jpg";
             }}
           />
+        ) : (
+          <div className="w-full h-full bg-zinc-800" />
         )}
 
         {/* Remove button */}
@@ -503,7 +500,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
 
 CompactWallpaperCard.displayName = 'CompactWallpaperCard';
 
-// FIXED Category Section Component - No image reloading on pagination
+// Optimized Category Section Component - No image reloading on pagination
 const CategorySection = React.memo(({ 
   category, 
   wallpapers, 
@@ -511,7 +508,7 @@ const CategorySection = React.memo(({
   setPageByCategory,
   onCardClick,
   onLike,
-  likedWallpapers,
+  likedIdsSet,
   highlightedProductCode,
   id 
 }) => {
@@ -519,7 +516,7 @@ const CategorySection = React.memo(({
   
   const itemsPerPage = 6;
   
-  // Calculate category items
+  // Calculate category items - memoized to prevent recalculation
   const categoryItems = useMemo(() => 
     wallpapers.filter((w) => w.subCategory?.name === category),
     [wallpapers, category]
@@ -528,52 +525,57 @@ const CategorySection = React.memo(({
   const totalPages = Math.ceil(categoryItems.length / itemsPerPage);
   const currentPage = pageByCategory[category] || 0;
   const start = currentPage * itemsPerPage;
+  
+  // Memoize visible items to prevent unnecessary re-renders
   const visibleItems = useMemo(() => 
     categoryItems.slice(start, start + itemsPerPage),
     [categoryItems, start]
   );
 
-  // FIXED: Preload images for ALL pages when component mounts
+  // Preload images for current and next page only (not all pages)
   useEffect(() => {
     if (!categoryItems.length) return;
     
-    const preloadAllCategoryImages = async () => {
-      // Preload all images in this category (not just visible ones)
-      const preloadPromises = categoryItems.map(wp => {
+    const preloadCategoryImages = async () => {
+      // Preload current page and next page images
+      const currentPageItems = categoryItems.slice(start, start + itemsPerPage);
+      const nextPageStart = start + itemsPerPage;
+      const nextPageItems = categoryItems.slice(nextPageStart, nextPageStart + itemsPerPage);
+      const itemsToPreload = [...currentPageItems, ...nextPageItems];
+      
+      // Preload in background without blocking
+      itemsToPreload.forEach(wp => {
         if (wp.imageUrl) {
-          return preloadImage(wp.imageUrl).catch(() => {
+          preloadImage(wp.imageUrl, { retry: true }).catch(() => {
             // Silently handle individual image failures
-            return null;
           });
         }
-        return Promise.resolve(null);
       });
-      
-      // Don't await - let it run in background
-      Promise.allSettled(preloadPromises);
     };
     
-    preloadAllCategoryImages();
-  }, [categoryItems]); // Only run when categoryItems changes
+    preloadCategoryImages();
+  }, [categoryItems, start, itemsPerPage]); // Only preload when page changes
 
   // Check if this category contains the highlighted product
   const containsHighlightedProduct = useMemo(() => {
     return visibleItems.some(wp => wp.productCode === highlightedProductCode);
   }, [visibleItems, highlightedProductCode]);
 
-  // Auto-scroll to highlighted product
+  // Auto-scroll to highlighted product - optimized with requestAnimationFrame
   useEffect(() => {
     if (containsHighlightedProduct && sectionRef.current) {
-      setTimeout(() => {
-        sectionRef.current.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center' 
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          sectionRef.current?.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
         });
-      }, 100);
+      });
     }
   }, [containsHighlightedProduct, currentPage]);
 
-  // Handle page change - FIXED to not cause reloads
+  // Handle page change - Optimized to not cause reloads or refetches
   const handlePageChange = useCallback((direction) => {
     let newPage = currentPage;
     if (direction === 'prev' && currentPage > 0) {
@@ -584,8 +586,11 @@ const CategorySection = React.memo(({
       return;
     }
     
-    // Update page state - this will trigger visibleItems update
-    setPageByCategory(prev => ({ ...prev, [category]: newPage }));
+    // Update page state - images are already cached, no refetch needed
+    setPageByCategory(prev => {
+      const newState = { ...prev, [category]: newPage };
+      return newState;
+    });
   }, [category, currentPage, totalPages, setPageByCategory]);
 
   return (
@@ -598,7 +603,8 @@ const CategorySection = React.memo(({
               size="icon"
               disabled={currentPage === 0}
               onClick={() => handlePageChange('prev')}
-              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-all duration-200"
+              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-transform duration-150 active:scale-95"
+              style={{ willChange: 'transform' }}
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -609,14 +615,18 @@ const CategorySection = React.memo(({
               size="icon"
               disabled={currentPage === totalPages - 1}
               onClick={() => handlePageChange('next')}
-              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-all duration-200"
+              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-transform duration-150 active:scale-95"
+              style={{ willChange: 'transform' }}
             >
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
         )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div 
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3"
+        style={{ contain: 'layout style paint' }} // CSS containment for better performance
+      >
         {visibleItems.map((wp, idx) => (
           <WallpaperCard 
             key={`${wp.id}-${currentPage}-${idx}`} 
@@ -624,7 +634,7 @@ const CategorySection = React.memo(({
             index={idx}
             onClick={onCardClick}
             onLike={onLike}
-            isLiked={likedWallpapers.some(w => w.id === wp.id)}
+            isLiked={likedIdsSet?.has(wp.id) || false}
             isHighlighted={wp.productCode === highlightedProductCode}
             id={id}
           />
@@ -640,7 +650,7 @@ CategorySection.displayName = 'CategorySection';
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
   const [imageState, setImageState] = useState({
     src: "",
-    isLoading: true
+    isLoading: false // No loading state
   });
 
   // Preload high-quality image for lightbox
@@ -649,9 +659,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
       let isMounted = true;
       
       const loadImage = async () => {
-        if (isMounted) {
-          setImageState(prev => ({ ...prev, isLoading: true }));
-        }
+        // Preload silently - no loading state
 
         try {
           const cachedUrl = await preloadImage(wallpaper.imageUrl);
@@ -710,7 +718,8 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            style={{ willChange: 'opacity' }}
             className="fixed inset-0 bg-black/90 z-[60]"
             onClick={onClose}
           />
@@ -718,14 +727,16 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <motion.div
               layoutId={`card-${wallpaper.id}-${id}`}
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ 
-                duration: 0.4, 
-                ease: [0.23, 1, 0.32, 1],
-                opacity: { duration: 0.3 }
+                duration: 0.25, 
+                ease: [0.25, 0.1, 0.25, 1],
+                opacity: { duration: 0.2 },
+                layout: { duration: 0.2 }
               }}
+              style={{ willChange: 'transform, opacity' }}
               className="relative w-full max-w-6xl max-h-[90vh] bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
@@ -780,7 +791,8 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                     <motion.img
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3 }}
+                      transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                      style={{ willChange: 'opacity' }}
                       src={imageState.src}
                       alt={wallpaper.name}
                       loading="eager"
@@ -794,9 +806,10 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                 
                 {/* Information overlay */}
                 <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2, duration: 0.3 }}
+                  transition={{ delay: 0.1, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                  style={{ willChange: 'transform, opacity' }}
                   className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6"
                 >
                   <div className="max-w-2xl mx-auto text-center">
@@ -830,19 +843,37 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
 
 export default function EllendorfWallpaperApp() {
   const router = useRouter();
+  const { isAuthenticated, loadingUser } = useAuth();
   const [wallpapers, setWallpapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
   const [showLikedModal, setShowLikedModal] = useState(false);
   const [showTemplateChoice, setShowTemplateChoice] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [pageByCategory, setPageByCategory] = useState({});
   const [likedWallpapers, setLikedWallpapers] = useState([]);
+  // Create Set for O(1) lookup performance
+  const likedIdsSet = useMemo(() => 
+    new Set(likedWallpapers.map(w => w.id)), 
+    [likedWallpapers]
+  );
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [highlightedProductCode, setHighlightedProductCode] = useState("");
   const [error, setError] = useState(null);
+  const [loadedPages, setLoadedPages] = useState(new Set([1])); // Track loaded pages
+  const [allWallpapers, setAllWallpapers] = useState([]); // Store all wallpapers
   const id = useId();
+
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Load liked wallpapers from sessionStorage
   useEffect(() => {
@@ -899,7 +930,7 @@ export default function EllendorfWallpaperApp() {
 
   const handleSearchChange = useCallback((e) => {
     const value = e.target.value;
-    setSearchTerm(value);
+    setSearchTerm(value); // Update immediately for UI responsiveness
     
     // If the search term looks like a product code, highlight it
     if (value.trim().toUpperCase() === value.trim() && value.trim().length >= 3) {
@@ -923,66 +954,144 @@ export default function EllendorfWallpaperApp() {
     setLikedWallpapers(prev => prev.filter(w => w.id !== wp.id));
   }, []);
 
-  // Fetch wallpapers data using axios
+  // Fetch wallpapers data with pagination - optimized for 4000 images
+  // ONLY load images after authentication is confirmed
   useEffect(() => {
+    // Don't load anything until authentication is confirmed
+    if (loadingUser || !isAuthenticated) {
+      return;
+    }
+
+    // Check if we already have data loaded
+    if (allWallpapers.length > 0) {
+      setWallpapers(allWallpapers);
+      setLoading(false);
+      return;
+    }
+
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
         
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
+        const baseUrl = '/api/wallpapers';
+        const limit = 200; // Increased batch size
+        let page = 1;
+        let allData = [];
         
-        const response = await axios.get(`${baseUrl}/api/wallpaper`, {
-          timeout: 10000,
-          headers: {
-            'Content-Type': 'application/json',
-          }
+        // Fetch first page
+        const firstResponse = await axios.get(`${baseUrl}?page=${page}&limit=${limit}`, {
+          timeout: 20000,
+          headers: { 'Content-Type': 'application/json' }
         });
         
-        const wpData = response.data;
-        const activeWallpapers = wpData
-          .filter((w) => w.status?.toLowerCase() === "active")
-          .map((w) => ({
-            ...w,
-            imageUrl: w.imageUrl || "/placeholder.jpg",
-          }));
+        const firstData = firstResponse.data;
+        allData = [...(firstData.data || [])];
+        const totalPages = firstData.pagination?.totalPages || 1;
         
-        activeWallpapers.sort((a, b) => {
+        // Show first batch immediately
+        const sorted = [...allData].sort((a, b) => {
           const catA = a.subCategory?.name || "Other";
           const catB = b.subCategory?.name || "Other";
           return catA.localeCompare(catB);
         });
+        setWallpapers(sorted);
+        setAllWallpapers(sorted);
+        setLoading(false);
         
-        setWallpapers(activeWallpapers);
+        // Fetch remaining pages in optimized batches
+        if (totalPages > 1) {
+          const batchSize = 5; // Increased batch size
+          const batches = [];
+          
+          for (let batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
+            const batchEnd = Math.min(batchStart + batchSize - 1, totalPages);
+            batches.push(
+              Promise.allSettled(
+                Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => 
+                  axios.get(`${baseUrl}?page=${batchStart + i}&limit=${limit}`, {
+                    timeout: 20000,
+                    headers: { 'Content-Type': 'application/json' }
+                  }).catch(() => null)
+                )
+              )
+            );
+          }
+          
+          // Process batches sequentially to avoid overwhelming the server
+          for (const batch of batches) {
+            const results = await batch;
+            results.forEach((result) => {
+              if (result.status === 'fulfilled' && result.value?.data?.data) {
+                allData = [...allData, ...result.value.data.data];
+              }
+            });
+            
+            // Update UI incrementally
+            if (allData.length > 0) {
+              const sorted = [...allData].sort((a, b) => {
+                const catA = a.subCategory?.name || "Other";
+                const catB = b.subCategory?.name || "Other";
+                return catA.localeCompare(catB);
+              });
+              setWallpapers(sorted);
+              setAllWallpapers(sorted);
+            }
+            
+            // Small delay between batches to prevent overwhelming
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
         
-        // Preload first batch of images in background
-        const firstBatch = activeWallpapers.slice(0, 24);
-        setTimeout(() => {
-          Promise.allSettled(
-            firstBatch.map(wp => preloadImage(wp.imageUrl).catch(() => null))
+        // Preload ALL images in background before showing them
+        // This ensures images are ready when displayed (no loading state)
+        const preloadAllImages = async () => {
+          // Preload all images with high priority
+          const preloadPromises = allData.map((wp, idx) => {
+            if (wp.imageUrl) {
+              const priority = idx < 50 ? 10 : (idx < 200 ? 8 : 5);
+              return preloadImage(wp.imageUrl, { retry: true, priority, timeout: 15000 }).catch(() => null);
+            }
+            return Promise.resolve(null);
+          });
+          
+          // Wait for first batch to load before showing UI
+          const firstBatch = allData.slice(0, 50);
+          await Promise.allSettled(
+            firstBatch.map(wp => wp.imageUrl ? preloadImage(wp.imageUrl, { retry: true, priority: 10, timeout: 15000 }).catch(() => null) : Promise.resolve(null))
           );
-        }, 500);
+          
+          // Continue preloading rest in background
+          Promise.allSettled(preloadPromises.slice(50));
+        };
+        
+        // Start preloading immediately after data is fetched
+        preloadAllImages();
       } catch (err) {
         console.error("Failed to fetch wallpapers:", err);
         setError("Failed to load wallpaper data. Please check your connection.");
         setWallpapers([]);
+        setAllWallpapers([]);
       } finally {
         setLoading(false);
       }
     };
+    
+    imageCache.init();
     fetchData();
-  }, []);
+  }, [isAuthenticated, loadingUser, allWallpapers.length]); // Only run after authentication
 
+  // Use debounced search term for filtering
   const filteredWallpapers = useMemo(() => {
-    if (!searchTerm) return wallpapers;
-    const term = searchTerm.toLowerCase();
+    if (!debouncedSearchTerm) return wallpapers;
+    const term = debouncedSearchTerm.toLowerCase();
     return wallpapers.filter(
       (w) =>
         w.name?.toLowerCase().includes(term) ||
         w.subCategory?.name?.toLowerCase().includes(term) ||
         w.productCode?.toLowerCase().includes(term)
     );
-  }, [wallpapers, searchTerm]);
+  }, [wallpapers, debouncedSearchTerm]);
 
   const categories = useMemo(() => {
     return [...new Set(wallpapers.map((w) => w.subCategory?.name).filter(Boolean))];
@@ -1441,14 +1550,20 @@ try {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div 
+      className="min-h-screen bg-black text-white"
+      style={{ 
+        scrollBehavior: 'smooth',
+        WebkitOverflowScrolling: 'touch' // Smooth scrolling on iOS
+      }}
+    >
       {/* Lightbox for full-size wallpaper view */}
       <Lightbox
         wallpaper={selectedWallpaper}
         isOpen={!!selectedWallpaper}
         onClose={() => setSelectedWallpaper(null)}
         onLike={toggleLike}
-        isLiked={selectedWallpaper ? likedWallpapers.some(w => w.id === selectedWallpaper.id) : false}
+        isLiked={selectedWallpaper ? likedIdsSet.has(selectedWallpaper.id) : false}
         id={id}
       />
 
@@ -1534,7 +1649,14 @@ try {
         </div>
       </section>
 
-      <main id="collections" className="py-4 md:py-8 px-4 md:px-8 bg-black">
+      <main 
+        id="collections" 
+        className="py-4 md:py-8 px-4 md:px-8 bg-black"
+        style={{ 
+          contain: 'layout style paint',
+          willChange: 'scroll-position'
+        }}
+      >
         <div className="container mx-auto">
           <h2 className="text-xl md:text-2xl font-light text-center text-zinc-300 mb-6 md:mb-8">
             {searchTerm ? `Results for "${searchTerm}"` : "All Textile Wall Coverings"}
@@ -1551,7 +1673,10 @@ try {
               <p className="text-zinc-500">Please check your data source or try again later.</p>
             </div>
           ) : searchTerm ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
+            <div 
+              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4"
+              style={{ contain: 'layout style paint' }}
+            >
               {filteredWallpapers.slice(0, 48).map((wp, index) => (
                 <WallpaperCard 
                   key={wp.id} 
@@ -1559,7 +1684,7 @@ try {
                   index={index}
                   onClick={handleCardClick}
                   onLike={toggleLike}
-                  isLiked={likedWallpapers.some(w => w.id === wp.id)}
+                  isLiked={likedIdsSet.has(wp.id)}
                   isHighlighted={wp.productCode === highlightedProductCode}
                   id={id}
                 />
@@ -1576,7 +1701,7 @@ try {
                   setPageByCategory={setPageByCategory}
                   onCardClick={handleCardClick}
                   onLike={toggleLike}
-                  likedWallpapers={likedWallpapers}
+                  likedIdsSet={likedIdsSet}
                   highlightedProductCode={highlightedProductCode}
                   id={id}
                 />
@@ -1656,6 +1781,8 @@ try {
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ willChange: 'opacity', contain: 'layout style paint' }}
                     className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 md:gap-4"
                   >
                     {likedWallpapers.map((wp, index) => (
