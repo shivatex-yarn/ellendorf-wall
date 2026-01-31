@@ -1,214 +1,1148 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import axios from 'axios'; 
-import { 
-  Loader2, 
-  Sparkles, 
-  ChevronLeft, 
-  ChevronRight, 
-  Maximize2, 
-  X, 
-  Grid, 
-  Filter, 
-  Search, 
-  List, 
-  Eye, 
-  LayoutGrid, 
-  LayoutList, 
-  Star,
-  Layers
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Heart,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  ArrowLeft,
+  Download,
+  Sparkles,
+  Eye,
+  Maximize2,
+  Trash2,
+} from "lucide-react";
+import { jsPDF } from "jspdf";
+import axios from "axios";
+import { AnimatePresence, motion } from "framer-motion";
+import { preloadImage, default as imageCache } from "@/lib/imageCache";
+import { useAuth } from "../layout/authcontent";
 
-export default function Wallpaper() {
-  const [quoteIndex, setQuoteIndex] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedWallpaper, setSelectedWallpaper] = useState(null);
-  const [wallpapers, setWallpapers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('grid');
-  const [sortBy, setSortBy] = useState('default');
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+// Debounce utility
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
-  const cardsPerPage = viewMode === 'grid' ? 9 : 6;
+// Customer Name Dialog Component
+const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
+  const [customerName, setCustomerName] = useState("");
 
-  const quotes = [
-    "Your walls deserve art, not just paint.",
-    "Where luxury meets living.",
-    "Design is a feeling you live in.",
-    "Every room tells a story. Make yours unforgettable.",
-    "Crafted for those who appreciate true elegance.",
-  ];
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (customerName.trim()) {
+      onConfirm(customerName.trim());
+      setCustomerName("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center">
+      <div className="relative bg-gradient-to-br from-zinc-900 to-black rounded-[2rem] p-12 shadow-2xl border border-zinc-700 max-w-2xl w-full mx-4">
+        <Button 
+          onClick={() => {
+            setCustomerName("");
+            onClose();
+          }} 
+          className="absolute top-6 right-6 bg-white/20 rounded-full p-3"
+        >
+          <X className="w-6 h-6" />
+        </Button>
+        
+        <h2 className="text-4xl font-semibold text-center mb-8 bg-clip-text text-transparent bg-gradient-to-r from-blue-200 to-emerald-200">
+          Enter Customer Name
+        </h2>
+        
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div>
+            <label className="block text-lg font-medium text-zinc-300 mb-3">
+              Customer Name <span className="text-red-500">*</span>
+            </label>
+            <Input
+              type="text"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Enter customer name"
+              className="w-full h-14 bg-zinc-900/80 border-zinc-600 text-lg rounded-xl"
+              required
+              autoFocus
+            />
+            <p className="text-sm text-zinc-400 mt-2">
+              The PDF will be generated with watermark and customer details.
+            </p>
+          </div>
+          
+          <div className="flex justify-end gap-4 pt-4">
+            <Button
+              type="button"
+              onClick={() => {
+                setCustomerName("");
+                onClose();
+              }}
+              className="bg-zinc-800 hover:bg-zinc-700 px-8 py-3 rounded-xl text-lg"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={!customerName.trim()}
+              className="bg-gradient-to-r from-emerald-600 to-emerald-800 hover:from-emerald-700 hover:to-emerald-900 px-8 py-3 rounded-xl text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Generate PDF
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Intersection Observer hook for lazy loading
+function useIntersectionObserver(ref, options = {}) {
+  const [isIntersecting, setIsIntersecting] = useState(false);
 
   useEffect(() => {
-    const fetchWallpapers = async () => {
-      setLoading(true);
-      setError(null);
+    if (!ref.current) return;
 
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsIntersecting(entry.isIntersecting);
+    }, {
+      rootMargin: '50px',
+      threshold: 0.01,
+      ...options,
+    });
+
+    observer.observe(ref.current);
+
+    return () => {
+      if (ref.current) {
+        observer.unobserve(ref.current);
+      }
+    };
+  }, [ref, options]);
+
+  return isIntersecting;
+}
+
+// WallpaperCard Component - Optimized with intersection observer and persistent cache
+const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: false, // No loading state - images preload silently
+    isError: false
+  });
+  const cardRef = useRef(null);
+  const isVisible = useIntersectionObserver(cardRef, { rootMargin: '200px' }); // Increased margin for smoother loading
+
+  // Optimized image loading with priority
+  useEffect(() => {
+    let isMounted = true;
+    let cancelled = false;
+    
+    const loadImage = async () => {
+      if (!wp.imageUrl || cancelled) return;
+
+      // Check in-memory cache first
+      const cachedValue = imageCache.get(wp.imageUrl);
+      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
+        if (isMounted && !cancelled) {
+          setImageState({
+            src: cachedValue,
+            isLoading: false,
+            isError: false
+          });
+        }
+        return;
+      }
+
+      // Check persistent cache (non-blocking)
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
-        const response = await axios.get(`${baseUrl}/api/wallpaper`);
+        const persistentCached = await imageCache.getPersistent(wp.imageUrl);
+        if (persistentCached && isMounted && !cancelled) {
+          imageCache.set(wp.imageUrl, persistentCached);
+          setImageState({
+            src: persistentCached,
+            isLoading: false,
+            isError: false
+          });
+          return;
+        }
+      } catch (error) {
+        // Continue to network
+      }
+
+      // Preload image silently (no loading state shown)
+      // Only set image source once it's fully loaded
+      try {
+        const priority = index < 12 ? 10 : (isVisible ? 5 : 0); // Higher priority for visible/early items
+        const loadedUrl = await preloadImage(wp.imageUrl, { 
+          retry: true, 
+          timeout: 8000, // Reduced timeout for faster failure
+          priority 
+        });
         
-        const data = response.data;
-        const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
-        setWallpapers(activeOnly);
-      } catch (err) {
-        console.error('Error fetching wallpapers:', err);
-        setError('Unable to load collection. Please try again.');
-        setWallpapers([]);
-      } finally {
-        setLoading(false);
+        if (isMounted && !cancelled) {
+          setImageState({
+            src: loadedUrl,
+            isLoading: false,
+            isError: false
+          });
+        }
+      } catch (error) {
+        if (isMounted && !cancelled) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false,
+            isError: true
+          });
+        }
       }
     };
 
-    fetchWallpapers();
-  }, []);
+    // Only load if visible or if it's one of the first 12 images
+    // AND only if user is authenticated (check via parent context)
+    if ((isVisible || index < 12)) {
+      loadImage();
+    }
+
+    return () => {
+      cancelled = true;
+      isMounted = false;
+    };
+  }, [wp.imageUrl, isVisible, index]); // Include isVisible and index
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onClick(wp);
+  };
+
+  const handleLikeClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onLike(wp);
+  };
+
+  return (
+    <motion.div
+      ref={cardRef}
+      layoutId={compact ? undefined : `card-${wp.id}-${id}`}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ 
+        duration: 0.2,
+        delay: Math.min(index * 0.005, 0.1), // Cap delay at 100ms
+        ease: [0.25, 0.1, 0.25, 1], // Custom easing for smoother feel
+        layout: { duration: 0.2 } // Faster layout animations
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ willChange: 'transform, opacity' }} // Optimize for GPU
+      className={`group relative bg-zinc-900/90 overflow-hidden cursor-pointer transition-transform duration-200 ease-out hover:scale-[1.03] hover:shadow-2xl border-2 aspect-[16/9] w-full rounded-2xl shadow-xl ${
+        isHighlighted 
+          ? 'border-blue-500 ring-4 ring-blue-500/20 scale-[1.03] z-10' 
+          : 'border-zinc-800'
+      } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
+      onClick={handleClick}
+    >
+      {/* Loading/Error state */}
+      {/* Main image - only show when ready, no loading state */}
+      <motion.div 
+        layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
+        className="w-full h-full"
+        style={{ willChange: 'transform' }}
+      >
+        {imageState.src ? (
+          <img
+            src={imageState.src}
+            alt={wp.name}
+            loading={index < 12 ? "eager" : "lazy"}
+            className={`w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-110 ${
+              compact ? 'rounded-lg' : 'rounded-2xl'
+            }`}
+            style={{ 
+              willChange: 'transform',
+              transform: 'translateZ(0)',
+            }}
+            crossOrigin="anonymous"
+            decoding="async"
+            onError={(e) => {
+              e.target.src = "/placeholder.jpg";
+            }}
+          />
+        ) : (
+          // Subtle placeholder background while preloading (no spinner)
+          <div className={`w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 ${compact ? 'rounded-lg' : 'rounded-2xl'}`} />
+        )}
+      </motion.div>
+
+      {/* Overlay info */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-all duration-300 ${
+          compact 
+            ? `p-2 rounded-b-lg ${isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}` 
+            : `p-4 rounded-b-2xl ${isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`
+        }`}
+      >
+        <motion.h3 
+          layoutId={compact ? undefined : `title-${wp.id}-${id}`} 
+          className={`${compact ? 'text-xs' : 'text-sm'} font-medium text-white truncate`}
+        >
+          {wp.name}
+        </motion.h3>
+        <motion.p 
+          layoutId={compact ? undefined : `code-${wp.id}-${id}`} 
+          className={`${compact ? 'text-[10px]' : 'text-xs'} text-zinc-300 truncate`}
+        >
+          {wp.productCode}
+        </motion.p>
+      </div>
+    </motion.div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison for better memoization
+  return (
+    prevProps.wp.id === nextProps.wp.id &&
+    prevProps.wp.imageUrl === nextProps.wp.imageUrl &&
+    prevProps.isLiked === nextProps.isLiked &&
+    prevProps.isHighlighted === nextProps.isHighlighted &&
+    prevProps.index === nextProps.index
+  );
+});
+
+WallpaperCard.displayName = 'WallpaperCard';
+
+// Compact Wallpaper Card for Liked Modal
+const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: false // No loading state - images preload silently
+  });
+  const cardRef = useRef(null);
+  const isVisible = useIntersectionObserver(cardRef, { rootMargin: '50px' });
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setQuoteIndex((prev) => (prev + 1) % quotes.length);
-    }, 7000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Get unique subcategories from wallpapers
-  const subCategories = useMemo(() => {
-    const subCats = new Set();
-    wallpapers.forEach(wp => {
-      if (wp.subCategory?.name) {
-        subCats.add(wp.subCategory.name);
+    let isMounted = true;
+    
+    const loadImage = async () => {
+      if (!wp.imageUrl) {
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
+        return;
       }
-    });
-    return Array.from(subCats).sort();
-  }, [wallpapers]);
 
-  // Search suggestions
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
+      // Check in-memory cache first
+      const cachedValue = imageCache.get(wp.imageUrl);
+      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
+        if (isMounted) {
+          setImageState({
+            src: cachedValue,
+            isLoading: false
+          });
+        }
+        return;
+      }
+
+      // Check persistent cache
+      try {
+        const persistentCached = await imageCache.getPersistent(wp.imageUrl);
+        if (persistentCached && isMounted) {
+          imageCache.set(wp.imageUrl, persistentCached);
+          setImageState({
+            src: persistentCached,
+            isLoading: false
+          });
+          return;
+        }
+      } catch (error) {
+        // Continue to load from network
+      }
+
+      // Preload silently (no loading state)
+      try {
+        const loadedUrl = await preloadImage(wp.imageUrl, { retry: true, priority: 5 });
+        if (isMounted) {
+          setImageState({
+            src: loadedUrl,
+            isLoading: false
+          });
+        }
+      } catch (error) {
+        console.warn("Failed to load image:", wp.imageUrl, error);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
+      }
+    };
+
+    // Load when visible
+    if (isVisible) {
+      loadImage();
     }
 
-    const query = searchQuery.toLowerCase().trim();
-    const results = [];
-    
-    // Search in wallpapers
-    wallpapers.forEach(wp => {
-      let matches = false;
-      
-      // Search in product code
-      if (wp.productCode?.toLowerCase().includes(query)) {
-        matches = true;
-      }
-      
-      // Search in name
-      if (wp.name?.toLowerCase().includes(query)) {
-        matches = true;
-      }
-      
-      // Search in description
-      if (wp.description?.toLowerCase().includes(query)) {
-        matches = true;
-      }
-      
-      // Search in subcategory
-      if (wp.subCategory?.name?.toLowerCase().includes(query)) {
-        matches = true;
-      }
-      
-      if (matches) {
-        results.push({
-          type: 'wallpaper',
-          data: wp,
-          highlight: wp.productCode?.toLowerCase().includes(query) ? 'productCode' : 
-                    wp.subCategory?.name?.toLowerCase().includes(query) ? 'subcategory' : 
-                    wp.name?.toLowerCase().includes(query) ? 'name' : 'description'
-        });
-      }
-    });
-    
-    // Search in subcategories
-    subCategories.forEach(subCat => {
-      if (subCat.toLowerCase().includes(query)) {
-        results.push({
-          type: 'subcategory',
-          data: subCat,
-          highlight: 'subcategory'
-        });
-      }
-    });
-    
-    setSearchResults(results);
-  }, [searchQuery, wallpapers, subCategories]);
+    return () => {
+      isMounted = false;
+    };
+  }, [wp.imageUrl, isVisible]);
 
-  const categories = useMemo(() => {
-    const cats = new Set(wallpapers.map(w => w.category?.name).filter(Boolean));
-    return ['All', ...Array.from(cats)];
-  }, [wallpapers]);
+  const handleClick = (e) => {
+    e.stopPropagation();
+    onClick(wp);
+  };
 
-  const filteredWallpapers = useMemo(() => {
-    let filtered = [...wallpapers];
-    
-    if (selectedCategory !== 'All') {
-      filtered = filtered.filter(w => w.category?.name === selectedCategory);
-    }
-    
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(w => 
-        w.name?.toLowerCase().includes(query) ||
-        w.productCode?.toLowerCase().includes(query) ||
-        w.description?.toLowerCase().includes(query) ||
-        w.subCategory?.name?.toLowerCase().includes(query)
-      );
-    }
-    
-    switch (sortBy) {
-      case 'name':
-        filtered.sort((a, b) => a.name?.localeCompare(b.name));
-        break;
-      case 'code':
-        filtered.sort((a, b) => a.productCode?.localeCompare(b.productCode));
-        break;
-      case 'newest':
-        filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-        break;
-      case 'subcategory':
-        filtered.sort((a, b) => a.subCategory?.name?.localeCompare(b.subCategory?.name));
-        break;
-      default:
-        break;
-    }
-    
-    return filtered;
-  }, [wallpapers, selectedCategory, searchQuery, sortBy]);
+  const handleRemove = (e) => {
+    e.stopPropagation();
+    onRemove(wp);
+  };
 
-  const totalPages = Math.ceil(filteredWallpapers.length / cardsPerPage);
-  const paginated = filteredWallpapers.slice(
-    (currentPage - 1) * cardsPerPage,
-    currentPage * cardsPerPage
+  return (
+    <motion.div
+      ref={cardRef}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ 
+        duration: 0.15, 
+        delay: Math.min(index * 0.01, 0.1),
+        ease: [0.25, 0.1, 0.25, 1]
+      }}
+      style={{ willChange: 'transform, opacity' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="group relative bg-zinc-800/50 rounded-lg overflow-hidden cursor-pointer border border-zinc-700/50 hover:border-zinc-600 transition-transform duration-150"
+    >
+      {/* Image container */}
+      <div 
+        className="relative aspect-[4/3] overflow-hidden"
+        onClick={handleClick}
+      >
+        {imageState.src ? (
+          <img
+            src={imageState.src}
+            alt={wp.name}
+            className="w-full h-full object-cover transition-transform duration-200 ease-out group-hover:scale-110"
+            style={{ 
+              willChange: 'transform',
+              transform: 'translateZ(0)',
+            }}
+            onError={(e) => {
+              e.target.src = "/placeholder.jpg";
+            }}
+          />
+        ) : (
+          <div className="w-full h-full bg-zinc-800" />
+        )}
+
+        {/* Remove button */}
+        <Button
+          onClick={handleRemove}
+          size="icon"
+          className={`absolute top-1 right-1 bg-red-600/90 hover:bg-red-700 rounded-full p-1 transition-all duration-200 ${
+            isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
+          }`}
+        >
+          <Trash2 className="w-3 h-3 text-white" />
+        </Button>
+
+        {/* View button */}
+        <Button
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(wp.imageUrl, '_blank');
+          }}
+          size="icon"
+          className={`absolute top-1 left-1 bg-black/70 hover:bg-black/90 rounded-full p-1 transition-all duration-200 ${
+            isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
+          }`}
+        >
+          <Eye className="w-3 h-3 text-white" />
+        </Button>
+      </div>
+
+      {/* Info bar */}
+      <div className="p-2 bg-zinc-900/80">
+        <div className="flex flex-col">
+          <span className="text-xs font-medium text-white truncate" title={wp.name}>
+            {wp.name}
+          </span>
+          <span className="text-[10px] text-zinc-400 truncate" title={wp.productCode}>
+            {wp.productCode}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
+CompactWallpaperCard.displayName = 'CompactWallpaperCard';
+
+// Optimized Category Section Component - No image reloading on pagination
+const CategorySection = React.memo(({ 
+  category, 
+  wallpapers, 
+  pageByCategory, 
+  setPageByCategory,
+  onCardClick,
+  onLike,
+  likedIdsSet,
+  highlightedProductCode,
+  id 
+}) => {
+  const sectionRef = useRef(null);
+  
+  const itemsPerPage = 6;
+  
+  // Calculate category items - memoized to prevent recalculation
+  const categoryItems = useMemo(() => 
+    wallpapers.filter((w) => w.subCategory?.name === category),
+    [wallpapers, category]
+  );
+  
+  const totalPages = Math.ceil(categoryItems.length / itemsPerPage);
+  const currentPage = pageByCategory[category] || 0;
+  const start = currentPage * itemsPerPage;
+  
+  // Memoize visible items to prevent unnecessary re-renders
+  const visibleItems = useMemo(() => 
+    categoryItems.slice(start, start + itemsPerPage),
+    [categoryItems, start]
   );
 
-  useEffect(() => setCurrentPage(1), [selectedCategory, searchQuery, viewMode]);
+  // Preload images for current and next page only (not all pages)
+  useEffect(() => {
+    if (!categoryItems.length) return;
+    
+    const preloadCategoryImages = async () => {
+      // Preload current page and next page images
+      const currentPageItems = categoryItems.slice(start, start + itemsPerPage);
+      const nextPageStart = start + itemsPerPage;
+      const nextPageItems = categoryItems.slice(nextPageStart, nextPageStart + itemsPerPage);
+      const itemsToPreload = [...currentPageItems, ...nextPageItems];
+      
+      // Preload in background without blocking
+      itemsToPreload.forEach(wp => {
+        if (wp.imageUrl) {
+          preloadImage(wp.imageUrl, { retry: true }).catch(() => {
+            // Silently handle individual image failures
+          });
+        }
+      });
+    };
+    
+    preloadCategoryImages();
+  }, [categoryItems, start, itemsPerPage]); // Only preload when page changes
 
-  const handleImageDownload = (url, name) => {
+  // Check if this category contains the highlighted product
+  const containsHighlightedProduct = useMemo(() => {
+    return visibleItems.some(wp => wp.productCode === highlightedProductCode);
+  }, [visibleItems, highlightedProductCode]);
+
+  // Auto-scroll to highlighted product - optimized with requestAnimationFrame
+  useEffect(() => {
+    if (containsHighlightedProduct && sectionRef.current) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          sectionRef.current?.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        });
+      });
+    }
+  }, [containsHighlightedProduct, currentPage]);
+
+  // Handle page change - Optimized to not cause reloads or refetches
+  const handlePageChange = useCallback((direction) => {
+    let newPage = currentPage;
+    if (direction === 'prev' && currentPage > 0) {
+      newPage = currentPage - 1;
+    } else if (direction === 'next' && currentPage < totalPages - 1) {
+      newPage = currentPage + 1;
+    } else {
+      return;
+    }
+    
+    // Update page state - images are already cached, no refetch needed
+    setPageByCategory(prev => {
+      const newState = { ...prev, [category]: newPage };
+      return newState;
+    });
+  }, [category, currentPage, totalPages, setPageByCategory]);
+
+  return (
+    <section key={category} className="mb-4" ref={sectionRef}>
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-xl font-medium text-white">{category}</h3>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="icon"
+              disabled={currentPage === 0}
+              onClick={() => handlePageChange('prev')}
+              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-transform duration-150 active:scale-95"
+              style={{ willChange: 'transform' }}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-xs text-zinc-400">
+              {currentPage + 1} / {totalPages}
+            </span>
+            <Button
+              size="icon"
+              disabled={currentPage === totalPages - 1}
+              onClick={() => handlePageChange('next')}
+              className="bg-black/70 rounded-full p-2 hover:bg-black/90 disabled:opacity-30 transition-transform duration-150 active:scale-95"
+              style={{ willChange: 'transform' }}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+      <div 
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3"
+        style={{ contain: 'layout style paint' }} // CSS containment for better performance
+      >
+        {visibleItems.map((wp, idx) => (
+          <WallpaperCard 
+            key={`${wp.id}-${currentPage}-${idx}`} 
+            wp={wp} 
+            index={idx}
+            onClick={onCardClick}
+            onLike={onLike}
+            isLiked={likedIdsSet?.has(wp.id) || false}
+            isHighlighted={wp.productCode === highlightedProductCode}
+            id={id}
+          />
+        ))}
+      </div>
+    </section>
+  );
+});
+
+CategorySection.displayName = 'CategorySection';
+
+// Lightbox Component for viewing full-size wallpaper
+const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: false // No loading state
+  });
+
+  // Preload high-quality image for lightbox
+  useEffect(() => {
+    if (wallpaper?.imageUrl && isOpen) {
+      let isMounted = true;
+      
+      const loadImage = async () => {
+        // Preload silently - no loading state
+
+        try {
+          const cachedUrl = await preloadImage(wallpaper.imageUrl);
+          if (isMounted) {
+            setImageState({
+              src: cachedUrl,
+              isLoading: false
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load lightbox image:", error);
+          if (isMounted) {
+            setImageState({
+              src: wallpaper.imageUrl,
+              isLoading: false
+            });
+          }
+        }
+      };
+      
+      loadImage();
+      
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [wallpaper?.imageUrl, isOpen]);
+
+  if (!isOpen || !wallpaper) return null;
+
+  const handleLikeClick = (e) => {
+    e.stopPropagation();
+    onLike(wallpaper);
+  };
+
+  const handleDownloadClick = (e) => {
+    e.stopPropagation();
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `${name.replace(/\s+/g, '_')}.jpg`;
+    link.href = wallpaper.imageUrl;
+    link.download = `${wallpaper.productCode || wallpaper.name}_wallpaper.jpg`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Watermark function for images with consistent text size
-  const applyEllendorfWatermark = (imageUrl) => {
+  const handleViewFull = (e) => {
+    e.stopPropagation();
+    window.open(wallpaper.imageUrl, "_blank");
+  };
+
+  return (
+    <AnimatePresence mode="wait">
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            style={{ willChange: 'opacity' }}
+            className="fixed inset-0 bg-black/90 z-[60]"
+            onClick={onClose}
+          />
+          
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              layoutId={`card-${wallpaper.id}-${id}`}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ 
+                duration: 0.25, 
+                ease: [0.25, 0.1, 0.25, 1],
+                opacity: { duration: 0.2 },
+                layout: { duration: 0.2 }
+              }}
+              style={{ willChange: 'transform, opacity' }}
+              className="relative w-full max-w-6xl max-h-[90vh] bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Controls */}
+              <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+                <Button
+                  onClick={handleLikeClick}
+                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                  size="icon"
+                >
+                  <Heart
+                    className={`w-6 h-6 transition-all duration-200 ${
+                      isLiked ? "fill-red-500 text-red-500" : "text-white"
+                    }`}
+                  />
+                </Button>
+
+                <Button
+                  onClick={handleViewFull}
+                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                  size="icon"
+                >
+                  <Maximize2 className="w-6 h-6 text-white" />
+                </Button>
+
+                <Button
+                  onClick={onClose}
+                  className="bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200"
+                  size="icon"
+                >
+                  <X className="w-6 h-6" />
+                </Button>
+              </div>
+
+              {/* Image container */}
+              <div className="relative w-full h-full flex items-center justify-center p-4">
+                <motion.div 
+                  layoutId={`image-${wallpaper.id}-${id}`}
+                  className="w-full h-full flex items-center justify-center"
+                >
+                  {imageState.isLoading && (
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center rounded-lg"
+                    >
+                      <div className="w-12 h-12 border-4 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                    </motion.div>
+                  )}
+                  
+                  {imageState.src && !imageState.isLoading && (
+                    <motion.img
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                      style={{ willChange: 'opacity' }}
+                      src={imageState.src}
+                      alt={wallpaper.name}
+                      loading="eager"
+                      className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
+                      onError={(e) => {
+                        e.target.src = "/placeholder.jpg";
+                      }}
+                    />
+                  )}
+                </motion.div>
+                
+                {/* Information overlay */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                  style={{ willChange: 'transform, opacity' }}
+                  className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6"
+                >
+                  <div className="max-w-2xl mx-auto text-center">
+                    <motion.h3 
+                      layoutId={`title-${wallpaper.id}-${id}`}
+                      className="text-2xl font-bold text-white mb-2"
+                    >
+                      {wallpaper.name}
+                    </motion.h3>
+                    {wallpaper.productCode && (
+                      <motion.p 
+                        layoutId={`code-${wallpaper.id}-${id}`}
+                        className="text-lg text-blue-300 mb-1"
+                      >
+                        Code: {wallpaper.productCode}
+                      </motion.p>
+                    )}
+                    {wallpaper.subCategory?.name && (
+                      <p className="text-zinc-300">Collection: {wallpaper.subCategory.name}</p>
+                    )}
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export default function EllendorfWallpaperApp() {
+  const router = useRouter();
+  const { isAuthenticated, loadingUser } = useAuth();
+  const [wallpapers, setWallpapers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedWallpaper, setSelectedWallpaper] = useState(null);
+  const [showLikedModal, setShowLikedModal] = useState(false);
+  const [showTemplateChoice, setShowTemplateChoice] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [pageByCategory, setPageByCategory] = useState({});
+  const [likedWallpapers, setLikedWallpapers] = useState([]);
+  // Create Set for O(1) lookup performance
+  const likedIdsSet = useMemo(() => 
+    new Set(likedWallpapers.map(w => w.id)), 
+    [likedWallpapers]
+  );
+  const [showCustomerDialog, setShowCustomerDialog] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [highlightedProductCode, setHighlightedProductCode] = useState("");
+  const [error, setError] = useState(null);
+  const [loadedPages, setLoadedPages] = useState(new Set([1])); // Track loaded pages
+  const [allWallpapers, setAllWallpapers] = useState([]); // Store all wallpapers
+  const id = useId();
+
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Load liked wallpapers from sessionStorage
+  useEffect(() => {
+    const stored = sessionStorage.getItem("likedWallpapers");
+    if (stored) {
+      try {
+        setLikedWallpapers(JSON.parse(stored));
+      } catch (err) {
+        console.error("Failed to parse liked wallpapers:", err);
+        setLikedWallpapers([]);
+      }
+    }
+  }, []);
+
+  // Save liked wallpapers to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("likedWallpapers", JSON.stringify(likedWallpapers));
+    } catch (err) {
+      console.error("Failed to save liked wallpapers:", err);
+    }
+  }, [likedWallpapers]);
+
+  // Handle escape key and body overflow
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setSelectedWallpaper(null);
+        setShowLikedModal(false);
+      }
+    };
+    
+    if (selectedWallpaper || showLikedModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "auto";
+    }
+    
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedWallpaper, showLikedModal]);
+
+  // Toggle like function
+  const toggleLike = useCallback((wp) => {
+    setLikedWallpapers((prev) => {
+      const exists = prev.some((w) => w.id === wp.id);
+      return exists ? prev.filter((w) => w.id !== wp.id) : [...prev, wp];
+    });
+  }, []);
+
+  const handleCardClick = useCallback((wp) => {
+    setSelectedWallpaper(wp);
+  }, []);
+
+  const handleSearchChange = useCallback((e) => {
+    const value = e.target.value;
+    setSearchTerm(value); // Update immediately for UI responsiveness
+    
+    // If the search term looks like a product code, highlight it
+    if (value.trim().toUpperCase() === value.trim() && value.trim().length >= 3) {
+      setHighlightedProductCode(value.trim().toUpperCase());
+    } else {
+      setHighlightedProductCode("");
+    }
+  }, []);
+
+  const clearAllLiked = () => {
+    setLikedWallpapers([]);
+    try {
+      sessionStorage.removeItem("likedWallpapers");
+    } catch (err) {
+      console.error("Failed to clear liked wallpapers:", err);
+    }
+  };
+
+  // Remove wallpaper from liked list
+  const removeFromLiked = useCallback((wp) => {
+    setLikedWallpapers(prev => prev.filter(w => w.id !== wp.id));
+  }, []);
+
+  // Fetch wallpapers data with pagination - optimized for 4000 images
+  // ONLY load images after authentication is confirmed
+  useEffect(() => {
+    // Don't load anything until authentication is confirmed
+    if (loadingUser || !isAuthenticated) {
+      return;
+    }
+
+    // Check if we already have data loaded
+    if (allWallpapers.length > 0) {
+      setWallpapers(allWallpapers);
+      setLoading(false);
+      return;
+    }
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const baseUrl = '/api/wallpapers';
+        const limit = 200; // Increased batch size
+        let page = 1;
+        let allData = [];
+        
+        // Fetch first page
+        const firstResponse = await axios.get(`${baseUrl}?page=${page}&limit=${limit}`, {
+          timeout: 20000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const firstData = firstResponse.data;
+        allData = [...(firstData.data || [])];
+        const totalPages = firstData.pagination?.totalPages || 1;
+        
+        // Show first batch immediately
+        const sorted = [...allData].sort((a, b) => {
+          const catA = a.subCategory?.name || "Other";
+          const catB = b.subCategory?.name || "Other";
+          return catA.localeCompare(catB);
+        });
+        setWallpapers(sorted);
+        setAllWallpapers(sorted);
+        setLoading(false);
+        
+        // Fetch remaining pages in optimized batches
+        if (totalPages > 1) {
+          const batchSize = 5; // Increased batch size
+          const batches = [];
+          
+          for (let batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
+            const batchEnd = Math.min(batchStart + batchSize - 1, totalPages);
+            batches.push(
+              Promise.allSettled(
+                Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => 
+                  axios.get(`${baseUrl}?page=${batchStart + i}&limit=${limit}`, {
+                    timeout: 20000,
+                    headers: { 'Content-Type': 'application/json' }
+                  }).catch(() => null)
+                )
+              )
+            );
+          }
+          
+          // Process batches sequentially to avoid overwhelming the server
+          for (const batch of batches) {
+            const results = await batch;
+            results.forEach((result) => {
+              if (result.status === 'fulfilled' && result.value?.data?.data) {
+                allData = [...allData, ...result.value.data.data];
+              }
+            });
+            
+            // Update UI incrementally
+            if (allData.length > 0) {
+              const sorted = [...allData].sort((a, b) => {
+                const catA = a.subCategory?.name || "Other";
+                const catB = b.subCategory?.name || "Other";
+                return catA.localeCompare(catB);
+              });
+              setWallpapers(sorted);
+              setAllWallpapers(sorted);
+            }
+            
+            // Small delay between batches to prevent overwhelming
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        // Preload ALL images in background before showing them
+        // This ensures images are ready when displayed (no loading state)
+        const preloadAllImages = async () => {
+          // Preload all images with high priority
+          const preloadPromises = allData.map((wp, idx) => {
+            if (wp.imageUrl) {
+              const priority = idx < 50 ? 10 : (idx < 200 ? 8 : 5);
+              return preloadImage(wp.imageUrl, { retry: true, priority, timeout: 15000 }).catch(() => null);
+            }
+            return Promise.resolve(null);
+          });
+          
+          // Wait for first batch to load before showing UI
+          const firstBatch = allData.slice(0, 50);
+          await Promise.allSettled(
+            firstBatch.map(wp => wp.imageUrl ? preloadImage(wp.imageUrl, { retry: true, priority: 10, timeout: 15000 }).catch(() => null) : Promise.resolve(null))
+          );
+          
+          // Continue preloading rest in background
+          Promise.allSettled(preloadPromises.slice(50));
+        };
+        
+        // Start preloading immediately after data is fetched
+        preloadAllImages();
+      } catch (err) {
+        console.error("Failed to fetch wallpapers:", err);
+        setError("Failed to load wallpaper data. Please check your connection.");
+        setWallpapers([]);
+        setAllWallpapers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    imageCache.init();
+    fetchData();
+  }, [isAuthenticated, loadingUser, allWallpapers.length]); // Only run after authentication
+
+  // Use debounced search term for filtering
+  const filteredWallpapers = useMemo(() => {
+    if (!debouncedSearchTerm) return wallpapers;
+    const term = debouncedSearchTerm.toLowerCase();
+    return wallpapers.filter(
+      (w) =>
+        w.name?.toLowerCase().includes(term) ||
+        w.subCategory?.name?.toLowerCase().includes(term) ||
+        w.productCode?.toLowerCase().includes(term)
+    );
+  }, [wallpapers, debouncedSearchTerm]);
+
+  const categories = useMemo(() => {
+    return [...new Set(wallpapers.map((w) => w.subCategory?.name).filter(Boolean))];
+  }, [wallpapers]);
+
+const downloadAllAsPDF = async (customerName) => {
+  if (!customerName || !customerName.trim()) {
+  alert("Please enter a customer name");
+  return;
+}
+
+setIsGeneratingPDF(true);
+
+try {
+  const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  
+  // Get current timestamp
+  const currentDate = new Date();
+  const timestamp = currentDate.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const formattedDate = currentDate.toISOString().split('T')[0];
+
+  // STANDARDIZED CONSTANTS FOR ALL IMAGES
+  const STANDARD_FONT_SIZES = {
+    mainBrand: 85,        // "ELLENDORF – Textile Wall Coverings"
+    subBrand: 38,         // "Textile Wall Coverings"
+    premiumCollection: 30, // "Premium Collection"
+    footer: 22            // Footer text
+  };
+
+  const STANDARD_BOX_DIMENSIONS = {
+    width: 0.65,    // 65% of image width
+    height: 0.18    // 18% of image height
+  };
+
+  const STANDARD_FOOTER = {
+    fontSize: 22,
+    height: 40,
+    marginBottom: 35
+  };
+
+  // Function to add luxury watermark to image with STANDARDIZED sizing
+  const addLuxuryWatermarkToImage = (imageUrl) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -217,31 +1151,28 @@ export default function Wallpaper() {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
+        
+        // Set canvas size to image size
         canvas.width = img.width;
         canvas.height = img.height;
         
         // Draw original image
         ctx.drawImage(img, 0, 0, img.width, img.height);
+        
+        // Add luxury watermark - Center position
         ctx.save();
         
         // Calculate center position
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
         
-        // Calculate font sizes based on image dimensions (percentage-based)
-        const baseSize = Math.min(canvas.width, canvas.height) * 0.08; // 8% of smaller dimension
-        const mainFontSize = Math.max(60, Math.min(baseSize, 100)); // Between 60-100px
-        const subFontSize1 = mainFontSize * 0.45; // 45% of main font
-        const subFontSize2 = mainFontSize * 0.35; // 35% of main font
+        // Calculate box dimensions based on STANDARD percentages
+        const boxWidth = canvas.width * STANDARD_BOX_DIMENSIONS.width;
+        const boxHeight = canvas.height * STANDARD_BOX_DIMENSIONS.height;
         
-        // Calculate box dimensions based on font sizes
-        const boxWidth = canvas.width * 0.7; // 70% of image width
-        const boxHeight = canvas.height * 0.15; // 15% of image height
-        
-        // Simple fix - just make the box much larger
-        ctx.globalAlpha = 0.32;
+        // Watermark background (consistent opacity)
+        ctx.globalAlpha = 0.15;
         ctx.fillStyle = "#ffffff";
-        // LARGER BOX - covers entire text area
         ctx.fillRect(
           centerX - boxWidth/2, 
           centerY - boxHeight/2, 
@@ -249,9 +1180,10 @@ export default function Wallpaper() {
           boxHeight
         );
 
+        // Main luxury branding (single line) - STANDARD FONT SIZE
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-        ctx.font = `bold ${mainFontSize}px 'Times New Roman', serif`;
+        ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
@@ -264,80 +1196,61 @@ export default function Wallpaper() {
         ctx.fillText(
           "ELLENDORF – Textile Wall Coverings",
           centerX,
-          centerY - (boxHeight * 0.12) // Position relative to box
+          centerY - (boxHeight * 0.15) // Consistent positioning
         );
 
+        // Reset shadow before drawing lines
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
 
-        // Decorative luxury divider
+        // Decorative luxury divider - STANDARD POSITIONING
         ctx.globalAlpha = 0.4;
         ctx.strokeStyle = "rgba(0,0,0,0.6)";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.15));
-        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.15));
+        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.1));
+        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.1));
         ctx.stroke();
 
-        ctx.font = `italic ${subFontSize1}px 'Times New Roman', serif`;
+        // Sub branding - STANDARD FONT SIZE
+        ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
         ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
         
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX - boxWidth * 0.2, centerY - (boxHeight * 0.05));
-        ctx.lineTo(centerX + boxWidth * 0.2, centerY - (boxHeight * 0.05));
-        ctx.stroke();
-        
-        ctx.font = `italic ${subFontSize2}px 'Times New Roman', serif`;
-        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.25));
-        
-        ctx.globalAlpha = 0.08;
-        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
-        for (let i = 0; i < 6; i++) {
-          ctx.beginPath();
-          ctx.arc(centerX + (i - 2.5) * (boxWidth * 0.1), centerY, boxHeight * 0.3, 0, Math.PI * 2);
-          ctx.fill();
-        }
+        // Premium Collection text - STANDARD FONT SIZE
+        ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
+        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.2));
         
         ctx.restore();
         
-        // Corner decorations
+        // STANDARD FOOTER at bottom of image
         ctx.save();
-        ctx.globalAlpha = 0.15;
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-        ctx.lineWidth = 3;
+        const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
+        const footerWidth = canvas.width * 0.8; // 80% of image width
         
-        // Top-left corner
-        ctx.beginPath();
-        ctx.moveTo(40, 40);
-        ctx.lineTo(120, 40);
-        ctx.lineTo(40, 120);
-        ctx.stroke();
+        // Footer background with consistent styling
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          centerX - footerWidth/2,
+          footerY - (STANDARD_FOOTER.height/2),
+          footerWidth,
+          STANDARD_FOOTER.height
+        );
         
-        // Top-right corner
-        ctx.beginPath();
-        ctx.moveTo(canvas.width - 40, 40);
-        ctx.lineTo(canvas.width - 120, 40);
-        ctx.lineTo(canvas.width - 40, 120);
-        ctx.stroke();
-        
-        // Bottom-left corner
-        ctx.beginPath();
-        ctx.moveTo(40, canvas.height - 40);
-        ctx.lineTo(40, canvas.height - 120);
-        ctx.lineTo(120, canvas.height - 40);
-        ctx.stroke();
-        
-        // Bottom-right corner
-        ctx.beginPath();
-        ctx.moveTo(canvas.width - 40, canvas.height - 40);
-        ctx.lineTo(canvas.width - 40, canvas.height - 120);
-        ctx.lineTo(canvas.width - 120, canvas.height - 40);
-        ctx.stroke();
-        
+        // Footer text - STANDARD FONT SIZE
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          "ELLENDORF Textile Wall Coverings - Premium Collection",
+          centerX,
+          footerY
+        );
         ctx.restore();
         
+        // Convert canvas to data URL with good quality
         const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
         resolve(watermarkedImage);
       };
@@ -348,721 +1261,577 @@ export default function Wallpaper() {
     });
   };
 
+  // Add cover page with white background
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+  // Add decorative border
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(2);
+  doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
+
+  // Add title with luxury styling
+  doc.setTextColor(40, 40, 40);
+  doc.setFontSize(48);
+  doc.setFont("times", "bolditalic");
+  doc.text("ELLENDORF", pageWidth / 2, 120, { align: "center" });
+
+  // Add decorative underline
+  doc.setDrawColor(200, 180, 150);
+  doc.setLineWidth(4);
+  doc.line(pageWidth / 2 - 140, 140, pageWidth / 2 + 140, 140);
+
+  doc.setFontSize(32);
+  doc.setFont("times", "italic");
+  doc.text("Premium Wall Coverings", pageWidth / 2, 180, { align: "center" });
+
+  doc.setFontSize(24);
+  doc.setFont("helvetica", "normal");
+  doc.text("Powered by Reimagine AI", pageWidth / 2, 220, { align: "center" });
+
+  // Add decorative element
+  doc.setFillColor(245, 245, 245);
+  doc.roundedRect(pageWidth / 2 - 200, 250, 400, 90, 10, 10, 'F');
+
+  // Add customer info inside decorative box
+  doc.setTextColor(60, 60, 60);
+  doc.setFontSize(26);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Client: ${customerName}`, pageWidth / 2, 285, { align: "center" });
+
+  doc.setFontSize(20);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Generated: ${timestamp}`, pageWidth / 2, 320, { align: "center" });
+
+  // Add wallpaper count
+  doc.setTextColor(100, 100, 100);
+  doc.setFontSize(18);
+  doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, 360, { align: "center" });
+
+  // Add decorative divider
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(1);
+  doc.setLineDash([5, 5]);
+  doc.line(50, 380, pageWidth - 50, 380);
+  doc.setLineDash([]);
+
+  // Add thank you note with luxury styling
+  doc.setTextColor(80, 80, 80);
+  doc.setFontSize(22);
+  doc.setFont("times", "italic");
+  doc.text("Thank you for choosing", pageWidth / 2, 420, { align: "center" });
+
+  doc.setFontSize(28);
+  doc.setFont("times", "bold");
+  doc.text("Ellendorf Luxury Collection", pageWidth / 2, 460, { align: "center" });
+
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "normal");
+  doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, 490, { align: "center" });
+
+  // Add decorative corner accents on cover page
+  doc.setDrawColor(200, 180, 150);
+  doc.setLineWidth(2);
+
+  // Top-left corner
+  doc.line(40, 40, 100, 40);
+  doc.line(40, 40, 40, 100);
+
+  // Top-right corner
+  doc.line(pageWidth - 40, 40, pageWidth - 100, 40);
+  doc.line(pageWidth - 40, 40, pageWidth - 40, 100);
+
+  // Bottom-left corner
+  doc.line(40, pageHeight - 40, 100, pageHeight - 40);
+  doc.line(40, pageHeight - 40, 40, pageHeight - 100);
+
+  // Bottom-right corner
+  doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 80, pageHeight - 40);
+  doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 40, pageHeight - 100);
+
+  // Process each wallpaper with CONSISTENT sizing
+  for (let i = 0; i < likedWallpapers.length; i++) {
+    const wp = likedWallpapers[i];
+    doc.addPage();
+    
+    // Set white background for content pages
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+    
+    // Add thinner decorative border to content pages
+    doc.setDrawColor(240, 240, 240);
+    doc.setLineWidth(0.5);
+    doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
+
+    try {
+      // Add luxury watermark directly to the image (now with STANDARD sizes)
+      const watermarkedImage = await addLuxuryWatermarkToImage(wp.imageUrl);
+      const img = new Image();
+      img.src = watermarkedImage;
+      
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          const imgRatio = img.width / img.height;
+          
+          // STANDARD image area - consistent for all images
+          const MAX_IMAGE_WIDTH = pageWidth - 60;  // 30px margins on each side
+          const MAX_IMAGE_HEIGHT = pageHeight - 140; // Space for info box and footer
+          
+          let drawWidth, drawHeight;
+          
+          if (imgRatio > 1) {
+            // Landscape image
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          } else {
+            // Portrait image
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          
+          // Ensure we don't exceed max height for landscape or max width for portrait
+          if (drawHeight > MAX_IMAGE_HEIGHT) {
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          if (drawWidth > MAX_IMAGE_WIDTH) {
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          }
+          
+          // Center the image with PROPER SPACING
+          const x = (pageWidth - drawWidth) / 2;
+          const y = 30; // Fixed top margin
+          
+          // Add the watermarked image
+          doc.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
+          
+          // Add compact information box below image with PROPER SPACING
+          const infoBoxY = y + drawHeight + 15; // 15px gap between image and info box
+          
+          doc.setFillColor(250, 250, 250);
+          doc.roundedRect(40, infoBoxY, pageWidth - 80, 50, 5, 5, 'F');
+          
+          doc.setDrawColor(230, 230, 230);
+          doc.setLineWidth(1);
+          doc.roundedRect(40, infoBoxY, pageWidth - 80, 50, 5, 5);
+          
+          // Add wallpaper details
+          doc.setTextColor(40, 40, 40);
+          doc.setFontSize(20);
+          doc.setFont("helvetica", "bold");
+          
+          // Truncate long names to fit
+          const displayName = wp.name && wp.name.length > 50 
+            ? wp.name.substring(0, 47) + "..." 
+            : wp.name || "Untitled";
+          
+          doc.text(displayName, pageWidth / 2, infoBoxY + 20, { align: "center" });
+          
+          doc.setFontSize(16);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, infoBoxY + 40, { align: "center" });
+          
+          // STANDARD FOOTER - same positioning and styling for all pages
+          const footerY = pageHeight - 50; // Fixed position
+          
+          doc.setFillColor(245, 245, 245);
+          doc.rect(0, footerY, pageWidth, 50, 'F');
+          
+          // Add decorative top border to footer
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(1);
+          doc.line(0, footerY, pageWidth, footerY);
+          
+          // Add customer name at bottom left
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(12);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Client: ${customerName}`, 40, footerY + 20);
+          
+          // Add timestamp at bottom right
+          doc.text(timestamp, pageWidth - 40, footerY + 20, { align: "right" });
+          
+          // Add page number in center
+          doc.setFontSize(12);
+          doc.setFont("helvetica", "italic");
+          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY + 35, { align: "center" });
+          
+          // Add brand footer with STANDARD styling
+          doc.setTextColor(150, 150, 150);
+          doc.setFontSize(10);
+          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 45, { align: "center" });
+          
+          resolve();
+        };
+        img.onerror = reject;
+      });
+    } catch (err) {
+      console.error("Error loading or watermarking image:", err);
+      
+      // Fallback with STANDARD layout
+      const fallbackY = pageHeight / 2 - 30;
+      
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(24);
+      doc.setFont("helvetica", "italic");
+      doc.text("Image unavailable", pageWidth / 2, fallbackY, { align: "center" });
+      
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "normal");
+      doc.text(wp.name || "Untitled", pageWidth / 2, fallbackY + 40, { align: "center" });
+      doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, fallbackY + 70, { align: "center" });
+      
+      // Add STANDARD FOOTER (same as above)
+      const footerY = pageHeight - 50;
+      
+      doc.setFillColor(245, 245, 245);
+      doc.rect(0, footerY, pageWidth, 50, 'F');
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(1);
+      doc.line(0, footerY, pageWidth, footerY);
+      
+      doc.setTextColor(100, 100, 100);
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Client: ${customerName}`, 40, footerY + 20);
+      doc.text(timestamp, pageWidth - 40, footerY + 20, { align: "right" });
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "italic");
+      doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY + 35, { align: "center" });
+      
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(10);
+      doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 45, { align: "center" });
+    }
+  }
+
+  // Save the PDF with luxury name
+  const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
+  doc.save(fileName);
+  
+} catch (error) {
+  console.error("PDF generation error:", error);
+  alert("Failed to generate luxury brochure. Please try again.");
+} finally {
+  setIsGeneratingPDF(false);
+}
+};
+
+  const handleDownloadPDF = () => {
+    setShowCustomerDialog(true);
+  };
+
+  const handleConfirmCustomerName = (customerName) => {
+    setShowCustomerDialog(false);
+    downloadAllAsPDF(customerName);
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
-        <motion.div 
-          className="text-center" 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1 }}
-        >
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="inline-block mb-8"
-          >
-            <div className="w-20 h-20 border-4 border-transparent border-t-blue-500 border-r-blue-500 rounded-full" />
-          </motion.div>
-          <p className="text-2xl font-light text-slate-700">Curating Luxury Collection...</p>
-          <p className="text-sm text-slate-500 mt-2">Loading premium designs</p>
-        </motion.div>
+      <div className="flex flex-col items-center justify-center h-screen bg-black">
+        <div className="w-16 h-16 border-4 border-zinc-700 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <div className="text-2xl text-zinc-400">Loading wall Coverings...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-8">
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="text-center p-12 bg-white/80 backdrop-blur-sm rounded-3xl border border-slate-200/50 shadow-2xl max-w-md"
-        >
-          <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6">
-            <X className="w-8 h-8 text-red-400" />
-          </div>
-          <p className="text-xl text-slate-700 mb-6">{error}</p>
-          <Button 
-            onClick={() => window.location.reload()} 
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-          >
-            Try Again
-          </Button>
-        </motion.div>
+      <div className="flex flex-col items-center justify-center h-screen bg-black">
+        <div className="text-2xl text-red-400 mb-4">Error</div>
+        <div className="text-lg text-zinc-400 mb-6">{error}</div>
+        <Button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-700">
+          Retry
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
-      <header className="sticky ">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                {/* Logo commented */}
-              </div>
-            </div>
+    <div 
+      className="min-h-screen bg-black text-white"
+      style={{ 
+        scrollBehavior: 'smooth',
+        WebkitOverflowScrolling: 'touch' // Smooth scrolling on iOS
+      }}
+    >
+      {/* Lightbox for full-size wallpaper view */}
+      <Lightbox
+        wallpaper={selectedWallpaper}
+        isOpen={!!selectedWallpaper}
+        onClose={() => setSelectedWallpaper(null)}
+        onLike={toggleLike}
+        isLiked={selectedWallpaper ? likedIdsSet.has(selectedWallpaper.id) : false}
+        id={id}
+      />
+
+      {/* Customer Name Dialog */}
+      <CustomerNameDialog
+        isOpen={showCustomerDialog}
+        onClose={() => setShowCustomerDialog(false)}
+        onConfirm={handleConfirmCustomerName}
+      />
+
+      <header className="sticky top-0 bg-black/95 backdrop-blur-2xl z-50 border-b border-zinc-800 px-4 md:px-8 py-4 md:py-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="flex items-center w-full md:w-auto">
+          <Button variant="ghost" onClick={() => router.push("/wallpaper")} className="mr-4">
+            <ArrowLeft className="mr-2 w-5 h-5 md:w-6 md:h-6" /> Back
+          </Button>
+          <h1 className="text-lg font-semibold">Ellendorf Textile Wall Coverings</h1>
+        </div>
+        
+        <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-zinc-400" />
+            <Input
+              placeholder="Search by Category or product code..."
+              value={searchTerm}
+              onChange={handleSearchChange}
+              className="pl-10 md:pl-12 w-full h-9 md:h-10 bg-zinc-900/80 border-zinc-700 rounded-xl text-sm md:text-base"
+            />
+          </div>
+          
+          <div className="flex gap-2 md:gap-4 w-full md:w-auto">
+            <Button
+              onClick={clearAllLiked}
+              disabled={likedWallpapers.length === 0}
+              variant="outline"
+              className="flex-1 md:flex-none bg-gradient-to-r from-blue-600 to-blue-800 text-sm md:text-lg px-4 md:px-8 py-2 md:py-4 rounded-xl"
+            >
+              Clear Shortlisted
+            </Button>
+            <Button
+              onClick={() => setShowLikedModal(true)}
+              disabled={likedWallpapers.length === 0}
+              className="flex-1 md:flex-none bg-gradient-to-r from-blue-600 to-blue-800 text-sm md:text-lg px-4 md:px-8 py-2 md:py-4 rounded-xl"
+            >
+              Shortlisted ({likedWallpapers.length})
+            </Button>
           </div>
         </div>
       </header>
 
-      <section className="relative min-h-[40vh] flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-blue-50/30"></div>
-        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-gradient-to-br from-indigo-400/10 to-blue-600/10 rounded-full blur-3xl"></div>
+      <section className="relative min-h-[60vh] md:min-h-[70vh] bg-gradient-to-br from-black via-zinc-900 to-black overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-900/10 via-transparent to-transparent"></div>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-blue-900/10 via-transparent to-transparent"></div>
+          <div className="absolute inset-0 bg-gradient-to-br from-transparent via-black/50 to-black"></div>
+        </div>
+        <div className="absolute top-0 left-0 w-32 h-32 md:w-64 md:h-64 border-t border-l border-amber-500/20"></div>
+        <div className="absolute bottom-0 right-0 w-32 h-32 md:w-64 md:h-64 border-b border-r border-blue-500/20"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 md:w-96 md:h-96 rounded-full border border-white/5"></div>
         
-        <div className="container mx-auto px-6 relative z-10">
-          <div className="max-w-5xl mx-auto text-center">
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-              className="mb-8"
-            >
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-                className="inline-block mb-6"
-              >
-                <Sparkles className="w-12 h-12 text-blue-400" />
-              </motion.div>
-              
-              <h1 className="text-4xl md:text-5xl font-bold mb-4">
-                <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
-                  Luxury Textile
-                </span>
-                <br />
-                <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-                  Wall Coverings
-                </span>
-              </h1>
-              
-              <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                Premium collection of exquisite designs for your living spaces
-              </p>
-            </motion.div>
-
-            <motion.div
-              key={quoteIndex}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mb-8"
-            >
-              <div className="inline-block bg-white/80 backdrop-blur-sm px-6 py-4 rounded-2xl border border-slate-200/50 shadow-lg">
-                <p className="text-xl font-light italic text-slate-600">
-                  {quotes[quoteIndex]}
-                </p>
-              </div>
-            </motion.div>
-
-            <div className="max-w-xl mx-auto mb-8">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search by product code, name, category"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setShowSearchSuggestions(true);
-                  }}
-                  onFocus={() => searchQuery && setShowSearchSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
-                  className="w-full pl-12 pr-4 py-3 bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50"
-                />
-                
-                {/* Search Suggestions Dropdown */}
-                {showSearchSuggestions && searchResults.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 z-50 max-h-96 overflow-y-auto"
-                  >
-                    <div className="p-2">
-                      <div className="text-xs text-slate-500 font-medium px-4 py-2">
-                        Found {searchResults.length} results for {searchQuery}
-                      </div>
-                      
-                      {searchResults.map((result, index) => (
-                        <div
-                          key={index}
-                          className="px-4 py-3 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors"
-                          onClick={() => {
-                            if (result.type === 'wallpaper') {
-                              setSelectedWallpaper(result.data);
-                            } else if (result.type === 'subcategory') {
-                              setSearchQuery(result.data);
-                              setShowSearchSuggestions(false);
-                            }
-                          }}
-                        >
-                          {result.type === 'wallpaper' ? (
-                            <div className="flex items-start gap-3">
-                              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                                <img
-                                  src={result.data.imageUrl}
-                                  alt={result.data.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-sm font-medium text-slate-900 truncate">
-                                    {result.data.name}
-                                  </span>
-                                  <span className="text-xs font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                                    {result.data.productCode}
-                                  </span>
-                                </div>
-                                {result.highlight === 'subcategory' && result.data.subCategory?.name && (
-                                  <div className="text-xs text-slate-600">
-                                    <span className="font-medium">Collection:</span>{' '}
-                                    <span className="text-blue-600">{result.data.subCategory.name}</span>
-                                  </div>
-                                )}
-                                {result.highlight === 'productCode' && (
-                                  <div className="text-xs text-slate-600">
-                                    <span className="font-medium">Product Code:</span>{' '}
-                                    <span className="text-blue-600">{result.data.productCode}</span>
-                                  </div>
-                                )}
-                                {result.highlight === 'name' && (
-                                  <div className="text-xs text-slate-600">
-                                    <span className="font-medium">Name:</span>{' '}
-                                    <span className="text-blue-600">{result.data.name}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-100 to-indigo-100 flex items-center justify-center flex-shrink-0">
-                                <Layers className="w-5 h-5 text-blue-600" />
-                              </div>
-                              <div>
-                                <div className="font-medium text-slate-900">Collection</div>
-                                <div className="text-sm text-blue-600">{result.data}</div>
-                              </div>
-                              <div className="ml-auto text-xs text-slate-500">
-                                Click to filter
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-              
-              {/* Quick Search Tips */}
-              <div className="mt-3 text-center">
-                <p className="text-xs text-slate-500">
-                  Try searching by: <span className="text-blue-600">product code</span>,{' '}
-                  <span className="text-blue-600">name</span>,{' '}
-                  <span className="text-blue-600">collection</span>, or{' '}
-                  <span className="text-blue-600">keywords</span>
-                </p>
-              </div>
+        <div className="relative z-10 container mx-auto px-4 md:px-8 pt-8 md:pt-16 pb-6 md:pb-12">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center justify-center gap-2 mb-4 md:mb-6">
+              <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.6)]" />
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-blue-100 to-blue-300 text-xs md:text-sm font-medium tracking-[0.25em] md:tracking-[0.35em] uppercase drop-shadow-[0_1px_6px_rgba(147,197,253,0.4)]">
+                Premium Collection
+              </span>
+              <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.6)]" />
             </div>
-
-            <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
-              <div className="flex flex-wrap justify-center gap-4">
-                <div className="flex items-center gap-2 text-slate-600 font-medium">
-                  <Filter className="w-4 h-4" />
-                  Collections:
-                </div>
-                {categories.map(cat => (
-                  <Button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    variant={selectedCategory === cat ? "default" : "ghost"}
-                    size="sm"
-                    className={`rounded-full ${
-                      selectedCategory === cat
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white'
-                        : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
-                    }`}
-                  >
-                    {cat}
-                  </Button>
-                ))}
-              </div>
-
-             
-
-                <div className="flex bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full p-1">
-                  <Button
-                    onClick={() => setViewMode('grid')}
-                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                    size="sm"
-                    className={`rounded-full px-4 ${viewMode === 'grid' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}`}
-                  >
-                    <LayoutGrid className="w-4 h-4 mr-2" />
-                    Grid
-                  </Button>
-                  <Button
-                    onClick={() => setViewMode('list')}
-                    variant={viewMode === 'list' ? 'default' : 'ghost'}
-                    size="sm"
-                    className={`rounded-full px-4 ${viewMode === 'list' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}`}
-                  >
-                    <LayoutList className="w-4 h-4 mr-2" />
-                    List
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-      </section>
-
-      <main className="pb-24">
-        <div className="container mx-auto px-6">
-          <div className="mb-12 text-center">
-            <p className="text-slate-600">
-              Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs
-              {selectedCategory !== 'All' && (
-                <span className="ml-2">
-                  in <span className="font-semibold text-indigo-600">{selectedCategory}</span>
-                </span>
-              )}
-              {searchQuery && (
-                <span className="ml-2">
-                  matching<span className="font-semibold text-green-600">{searchQuery}</span>
-                </span>
-              )}
+            
+            <h1 className="text-3xl md:text-5xl lg:text-6xl font-light text-center mb-4 tracking-tight">
+              <span className="relative bg-clip-text text-transparent bg-gradient-to-r from-blue-900 via-blue-400 to-blue-900 bg-[length:200%_200%] animate-[shine_6s_linear_infinite] drop-shadow-[0_1px_8px_rgba(59,130,246,0.4)]">
+                Ellendorf
+              </span>
+              <br />
+              <span className="text-xl md:text-3xl lg:text-4xl font-light text-zinc-300"> Textile Wall Coverings</span>
+            </h1>
+            
+            <p className="text-sm md:text-lg lg:text-xl text-zinc-400 text-center max-w-3xl mx-auto mb-6 md:mb-8 leading-relaxed">
+              Experience unparalleled luxury with our curated selection of premium  Textile Wall Coverings.
+              Each design tells a story of craftsmanship and elegance.
             </p>
           </div>
+        </div>
+      </section>
 
-          {viewMode === 'grid' ? (
-            <motion.div 
-              layout
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-16"
-            >
-              <AnimatePresence mode="popLayout">
-                {paginated.map((wp, i) => (
-                  <motion.div
-                    key={wp.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -20 }}
-                    transition={{ 
-                      duration: 0.4,
-                      delay: i * 0.05,
-                      layout: { duration: 0.3 }
-                    }}
-                    className="group relative"
-                  >
-                    <div
-                      className="relative rounded-3xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-500 cursor-pointer bg-white border border-slate-200/50"
-                      onClick={() => setSelectedWallpaper(wp)}
-                    >
-                      <div className="aspect-[4/3] relative overflow-hidden">
-                        <img
-                          src={wp.imageUrl}
-                          alt={wp.name}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        />
-                        
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                        
-                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                          <Button
-                            size="icon"
-                            variant="secondary"
-                            className="bg-white/90 backdrop-blur-sm hover:bg-white rounded-full"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedWallpaper(wp);
-                            }}
-                          >
-                            <Eye className="w-4 h-4 text-slate-600" />
-                          </Button>
-                        </div>
-                        
-                        <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium text-slate-700 shadow-sm">
-                          {wp.subCategory?.name || "Premium"}
-                        </div>
-                      </div>
-
-                      <div className="p-6 bg-white">
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="text-lg font-semibold text-slate-900 truncate">
-                            {wp.name}
-                          </h3>
-                          <span className="text-sm font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                            {wp.productCode}
-                          </span>
-                        </div>
-                        
-                        {wp.description && (
-                          <p className="text-sm text-slate-600 line-clamp-2 mb-4">
-                            {wp.description}
-                          </p>
-                        )}
-                        
-                        <div className="flex items-center justify-between mt-4">
-                          <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                            {wp.subCategory?.name || 'Premium Collection'}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              className="text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedWallpaper(wp);
-                              }}
-                            >
-                              <Maximize2 className="w-4 h-4 mr-2" />
-                              Preview
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          ) : (
-            <motion.div 
-              layout
-              className="space-y-6 mb-16"
-            >
-              <AnimatePresence mode="popLayout">
-                {paginated.map((wp, i) => (
-                  <motion.div
-                    key={wp.id}
-                    layout
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ 
-                      duration: 0.4,
-                      delay: i * 0.05
-                    }}
-                  >
-                    <div
-                      className="group bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200/50 cursor-pointer"
-                      onClick={() => setSelectedWallpaper(wp)}
-                    >
-                      <div className="flex flex-col md:flex-row">
-                        <div className="md:w-1/3 relative overflow-hidden">
-                          <img
-                            src={wp.imageUrl}
-                            alt={wp.name}
-                            className="w-full h-64 md:h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          />
-                          <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium text-slate-700">
-                            {wp.subCategory?.name || "Premium"}
-                          </div>
-                        </div>
-                        
-                        <div className="md:w-2/3 p-6 flex flex-col justify-between">
-                          <div>
-                            <div className="flex flex-col md:flex-row md:items-start justify-between mb-3">
-                              <h3 className="text-xl font-semibold text-slate-900 mb-2 md:mb-0">
-                                {wp.name}
-                              </h3>
-                              <span className="text-sm font-mono text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
-                                {wp.productCode}
-                              </span>
-                            </div>
-                            
-                            {wp.description && (
-                              <p className="text-slate-600 mb-4 line-clamp-3">
-                                {wp.description}
-                              </p>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                            <div className="text-sm text-slate-500">
-                              <span className="bg-slate-100 px-3 py-1 rounded-full">
-                                {wp.subCategory?.name || 'Premium Collection'}
-                              </span>
-                            </div>
-                            
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="rounded-full"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedWallpaper(wp);
-                                }}
-                              >
-                                <Eye className="w-4 h-4 mr-2" />
-                                Preview
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          )}
-
-          {totalPages > 1 && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-col sm:flex-row justify-center items-center gap-6"
-            >
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  variant="outline"
-                  size="sm"
-                  className="border-slate-300 text-slate-700 hover:bg-slate-50 rounded-full"
-                >
-                  <ChevronLeft className="w-4 h-4 mr-2" />
-                  Previous
-                </Button>
-                
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <Button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        variant={currentPage === pageNum ? "default" : "ghost"}
-                        size="sm"
-                        className={`w-8 h-8 p-0 ${
-                          currentPage === pageNum
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                            : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
-                        }`}
-                      >
-                        {pageNum}
-                    </Button>
-                    );
-                  })}
-                </div>
-                
-                <Button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  variant="outline"
-                  size="sm"
-                  className="border-slate-300 text-slate-700 hover:bg-slate-50 rounded-full"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-2" />
-                </Button>
-              </div>
-              
-              <span className="text-sm text-slate-600">
-                Page {currentPage} of {totalPages} • {filteredWallpapers.length} designs
+      <main 
+        id="collections" 
+        className="py-4 md:py-8 px-4 md:px-8 bg-black"
+        style={{ 
+          contain: 'layout style paint',
+          willChange: 'scroll-position'
+        }}
+      >
+        <div className="container mx-auto">
+          <h2 className="text-xl md:text-2xl font-light text-center text-zinc-300 mb-6 md:mb-8">
+            {searchTerm ? `Results for "${searchTerm}"` : "All Textile Wall Coverings"}
+            {highlightedProductCode && (
+              <span className="block text-sm md:text-base text-blue-400 mt-2">
+                Highlighting product code: {highlightedProductCode}
               </span>
-            </motion.div>
+            )}
+          </h2>
+          
+          {wallpapers.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-xl text-zinc-400 mb-4">No wall coverings found</div>
+              <p className="text-zinc-500">Please check your data source or try again later.</p>
+            </div>
+          ) : searchTerm ? (
+            <div 
+              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4"
+              style={{ contain: 'layout style paint' }}
+            >
+              {filteredWallpapers.slice(0, 48).map((wp, index) => (
+                <WallpaperCard 
+                  key={wp.id} 
+                  wp={wp} 
+                  index={index}
+                  onClick={handleCardClick}
+                  onLike={toggleLike}
+                  isLiked={likedIdsSet.has(wp.id)}
+                  isHighlighted={wp.productCode === highlightedProductCode}
+                  id={id}
+                />
+              ))}
+            </div>
+          ) : (
+            <div>
+              {categories.map((category) => (
+                <CategorySection 
+                  key={category}
+                  category={category}
+                  wallpapers={filteredWallpapers}
+                  pageByCategory={pageByCategory}
+                  setPageByCategory={setPageByCategory}
+                  onCardClick={handleCardClick}
+                  onLike={toggleLike}
+                  likedIdsSet={likedIdsSet}
+                  highlightedProductCode={highlightedProductCode}
+                  id={id}
+                />
+              ))}
+            </div>
           )}
         </div>
       </main>
 
+      {/* Liked Wallpapers Modal - Compact View */}
       <AnimatePresence>
-        {selectedWallpaper && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedWallpaper(null)}
-            className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer"
-          >
+        {showLikedModal && (
+          <>
             <motion.div
-              initial={{ scale: 0.8, rotateX: -10 }}
-              animate={{ scale: 1, rotateX: 0 }}
-              exit={{ scale: 0.8, rotateX: -10 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative max-w-6xl w-full bg-gradient-to-br from-white to-slate-50 rounded-3xl overflow-hidden border border-slate-200/50 shadow-2xl"
-            >
-              <div className="relative h-[70vh] overflow-hidden">
-                <img
-                  src={selectedWallpaper.imageUrl}
-                  alt={selectedWallpaper.name}
-                  className="w-full h-full object-contain"
-                />
-                
-                <div className="absolute inset-0 bg-gradient-to-t from-white/80 via-transparent to-transparent" />
-                <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-transparent to-transparent" />
-              </div>
-
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-white via-white/95 to-transparent">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black z-50"
+              onClick={() => setShowLikedModal(false)}
+            />
+            
+            <div className="fixed inset-0 z-50 flex flex-col">
+              <div className="sticky top-0 bg-black  p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <Button 
+                    onClick={() => setShowLikedModal(false)} 
+                    className="bg-black hover:bg-white/20 rounded-full p-2"
+                    size="icon"
+                  >
+                    <X className="w-5 h-5" />
+                  </Button>
+                  
                   <div>
-                    <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-                      {selectedWallpaper.name}
-                    </h2>
-                    <div className="flex flex-wrap gap-4 items-center">
-                      <span className="text-xl text-blue-600 font-mono">
-                        {selectedWallpaper.productCode}
-                      </span>
-                      {selectedWallpaper.subCategory?.name && (
-                        <span className="px-4 py-2 bg-slate-100 text-slate-700 rounded-full">
-                          {selectedWallpaper.subCategory.name}
-                        </span>
+                    <h2 className="text-lg md:text-xl font-light">Shortlisted Wall Coverings</h2>
+                    <p className="text-sm text-zinc-400">{likedWallpapers.length} items selected</p>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={clearAllLiked}
+                      disabled={likedWallpapers.length === 0}
+                      variant="outline"
+                      className="flex-1 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
+                    >
+                      Clear All
+                    </Button>
+                    <Button 
+                      onClick={handleDownloadPDF} 
+                      disabled={isGeneratingPDF || likedWallpapers.length === 0}
+                      className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-800 hover:from-emerald-700 hover:to-emerald-900 px-4 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGeneratingPDF ? (
+                        <>
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3 h-3 mr-2" /> Download PDF
+                        </>
                       )}
-                    </div>
-                    {/* {selectedWallpaper.description && (
-                      <p className="mt-4 text-slate-600 max-w-2xl">
-                        {selectedWallpaper.description}
-                      </p>
-                    )} */}
+                    </Button>
                   </div>
                 </div>
               </div>
-
-              <Button
-                onClick={() => setSelectedWallpaper(null)}
-                className="absolute top-6 right-6 bg-white/80 hover:bg-white backdrop-blur-sm rounded-full p-3 shadow-lg"
-                size="icon"
-              >
-                <X className="w-6 h-6 text-slate-700" />
-              </Button>
-
-              <Button
-                onClick={async () => {
-                  try {
-                    // Show loading state
-                    setIsGeneratingPDF(true);
-                    
-                    // Apply watermark
-                    const watermarkedImage = await applyEllendorfWatermark(selectedWallpaper.imageUrl);
-                    
-                    // Open in new tab
-                    const newWindow = window.open();
-                    newWindow.document.write(`
-                      <html>
-                        <head>
-                          <title>${selectedWallpaper.name} - ELLENDORF Wall Coverings</title>
-                          <style>
-                            body { 
-                              margin: 0; 
-                              background: #f5f5f5; 
-                              display: flex; 
-                              justify-content: center; 
-                              align-items: center; 
-                              min-height: 100vh;
-                            }
-                            img { 
-                              max-width: 95vw; 
-                              max-height: 95vh; 
-                              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                              border-radius: 12px;
-                            }
-                            .watermark-note {
-                              position: fixed;
-                              bottom: 20px;
-                              left: 0;
-                              right: 0;
-                              text-align: center;
-                              color: #666;
-                              font-size: 14px;
-                              font-family: 'Times New Roman', serif;
-                              font-style: italic;
-                            }
-                          </style>
-                        </head>
-                        <body>
-                          <img src="${watermarkedImage}" alt="${selectedWallpaper.name}" />
-                          <div class="watermark-note">ELLENDORF Textile Wall Coverings - Premium Collection</div>
-                        </body>
-                      </html>
-                    `);
-                    newWindow.document.close();
-                    
-                    setIsGeneratingPDF(false);
-                  } catch (error) {
-                    console.error("Error opening watermarked image:", error);
-                    setIsGeneratingPDF(false);
-                    // Fallback to original image
-                    window.open(selectedWallpaper.imageUrl, '_blank');
-                  }
-                }}
-                className="absolute top-6 left-6 bg-white/80 hover:bg-white backdrop-blur-sm text-slate-700"
-                disabled={isGeneratingPDF}
-              >
-                {isGeneratingPDF ? (
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+              
+              <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                {likedWallpapers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                    <Heart className="w-16 h-16 text-zinc-700 mb-4" />
+                    <h3 className="text-xl text-zinc-400 mb-2">No Shortlisted Wall Coverings</h3>
+                    <p className="text-zinc-500">Click the heart icon on wall coverings to add them here.</p>
+                  </div>
                 ) : (
-                  <Maximize2 className="w-5 h-5 mr-2" />
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ willChange: 'opacity', contain: 'layout style paint' }}
+                    className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 md:gap-4"
+                  >
+                    {likedWallpapers.map((wp, index) => (
+                      <CompactWallpaperCard
+                        key={`${wp.id}-${index}`}
+                        wp={wp}
+                        index={index}
+                        onClick={handleCardClick}
+                        onRemove={removeFromLiked}
+                      />
+                    ))}
+                  </motion.div>
                 )}
-                {isGeneratingPDF ? "Adding Watermark..." : "Full View with Watermark"}
-              </Button>
-            </motion.div>
-          </motion.div>
+              </div>
+            </div>
+          </>
         )}
       </AnimatePresence>
 
-      <footer className="bg-gradient-to-b from-white to-slate-100 border-t border-slate-200/50">
-        <div className="container mx-auto px-6 py-12">
-          <div className="flex flex-col md:flex-row items-center justify-between">
-            <div className="mb-6 md:mb-0">
-              <div className="flex items-center space-x-3">
-                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                  Ellendorf
-                </div>
-                <div className="h-6 w-px bg-slate-300"></div>
-                <p className="text-sm text-slate-500">
-                  Luxury Textile Wall Coverings
-                </p>
-              </div>
-              <p className="text-sm text-slate-400 mt-4 max-w-md">
-                Premium collection of exquisite designs for modern living spaces.
-                Elevate your decor with our stunning wall coverings.
-              </p>
-            </div>
-            
-            <div className="flex flex-col items-center md:items-end space-y-2">
-              <p className="text-sm text-slate-500">
-                Showing {filteredWallpapers.length} of {wallpapers.length} designs
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setViewMode('grid')}
-                  className={`rounded-full ${viewMode === 'grid' ? 'bg-slate-100' : ''}`}
+      {/* Template Choice Modal */}
+      {/* <AnimatePresence>
+        {showTemplateChoice && (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+            <div className="relative bg-gradient-to-br from-zinc-900 to-black rounded-xl md:rounded-2xl p-6 md:p-8 lg:p-12 shadow-2xl border border-zinc-700 max-w-4xl w-full">
+              <Button onClick={() => setShowTemplateChoice(false)} className="absolute top-3 right-3 md:top-4 md:right-4 bg-white/20 rounded-full p-2 md:p-3">
+                <X className="w-4 h-4 md:w-5 md:h-5" />
+              </Button>
+              
+              <h2 className="text-xl md:text-2xl lg:text-3xl font-semibold text-center mb-6 md:mb-8 bg-clip-text text-transparent bg-gradient-to-r from-amber-200 to-blue-200">
+                Choose Template Type
+              </h2>
+              
+              <div className="flex flex-col md:flex-row gap-4 md:gap-6 justify-center">
+                <Button 
+                  onClick={() => router.push("/templateview")} 
+                  className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 text-base md:text-lg lg:text-xl px-6 py-4 md:px-10 md:py-6 rounded-xl md:rounded-2xl shadow-xl shadow-blue-900/30"
                 >
-                  <Grid className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setViewMode('list')}
-                  className={`rounded-full ${viewMode === 'list' ? 'bg-slate-100' : ''}`}
-                >
-                  <List className="w-4 h-4" />
+                  2D Template
+                  <span className="block text-xs md:text-sm opacity-80 mt-1">Liked: {likedWallpapers.length}</span>
                 </Button>
               </div>
-              <p className="text-sm text-slate-400">
-                © {new Date().getFullYear()} Ellendorf. All rights reserved.
-              </p>
             </div>
           </div>
-        </div>
+        )}
+      </AnimatePresence> */}
+
+      <footer className="py-6 px-4 border-t border-zinc-800 text-center text-zinc-500 text-sm">
+        <p>Ellendorf Luxury Wall Covering Collection | Powered by Reimagine AI</p>
+        <p className="mt-1">© {new Date().getFullYear()} All rights reserved</p>
       </footer>
     </div>
   );

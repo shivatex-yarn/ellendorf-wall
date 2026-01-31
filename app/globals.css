@@ -1,3 +1,4 @@
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -121,5 +122,45 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Performance optimizations for image loading */
+@layer utilities {
+  img {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 1000px;
+  }
+  
+  /* Smooth scrolling for better UX */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Optimize image rendering */
+  img[loading="lazy"] {
+    content-visibility: auto;
+  }
+  
+  /* Skeleton shimmer animation for loading states */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  
+  /* Optimize image decoding */
+  img {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  
+  /* GPU acceleration for smoother scrolling */
+  .grid {
+    will-change: contents;
+    transform: translateZ(0);
   }
 }

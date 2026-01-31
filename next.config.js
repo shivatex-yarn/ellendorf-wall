@@ -25,7 +25,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "https://riw-wall-admin-2-4-2.onrender.com/api/:path*",
+        destination: "https://ellendorf-server.onrender.com/api/:path*",
       },
     ];
   },
