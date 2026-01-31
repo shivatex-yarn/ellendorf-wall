@@ -84,7 +84,7 @@ class ImageCache {
 
 const imageCache = new ImageCache(500); // Increased cache size for 1000 images
 
-// Optimized preload image function with better caching and priority loading
+// Ultra-optimized preload image function with better caching and priority loading
 const preloadImage = (url, priority = false) => {
   return new Promise((resolve, reject) => {
     // Check cache first
@@ -114,28 +114,87 @@ const preloadImage = (url, priority = false) => {
 
     // Create a promise for this image
     const imagePromise = new Promise((resolveLoad, rejectLoad) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
+      // Use fetch API for better control and WebP support
+      const useFetch = priority && 'fetch' in window;
       
-      // Use fetchpriority for priority images
-      if (priority && 'fetchPriority' in img) {
-        img.fetchPriority = 'high';
+      if (useFetch) {
+        // Use fetch for priority images (better for WebP, better control)
+        fetch(url, {
+          mode: 'cors',
+          credentials: 'omit',
+          priority: priority ? 'high' : 'auto'
+        })
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.blob();
+        })
+        .then(blob => {
+          const objectUrl = URL.createObjectURL(blob);
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          
+          img.onload = () => {
+            imageCache.set(url, url);
+            imageCache.loadingPromises.delete(url);
+            URL.revokeObjectURL(objectUrl);
+            resolveLoad(url);
+          };
+          
+          img.onerror = () => {
+            imageCache.set(url, null);
+            imageCache.loadingPromises.delete(url);
+            URL.revokeObjectURL(objectUrl);
+            rejectLoad(new Error(`Failed to load image: ${url}`));
+          };
+          
+          img.src = objectUrl;
+        })
+        .catch(() => {
+          // Fallback to traditional image loading
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          
+          if (priority && 'fetchPriority' in img) {
+            img.fetchPriority = 'high';
+          }
+          
+          img.onload = () => {
+            imageCache.set(url, url);
+            imageCache.loadingPromises.delete(url);
+            resolveLoad(url);
+          };
+          
+          img.onerror = () => {
+            imageCache.set(url, null);
+            imageCache.loadingPromises.delete(url);
+            rejectLoad(new Error(`Failed to load image: ${url}`));
+          };
+          
+          img.src = url;
+        });
+      } else {
+        // Traditional image loading for non-priority or older browsers
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        
+        if (priority && 'fetchPriority' in img) {
+          img.fetchPriority = 'high';
+        }
+        
+        img.onload = () => {
+          imageCache.set(url, url);
+          imageCache.loadingPromises.delete(url);
+          resolveLoad(url);
+        };
+        
+        img.onerror = () => {
+          imageCache.set(url, null);
+          imageCache.loadingPromises.delete(url);
+          rejectLoad(new Error(`Failed to load image: ${url}`));
+        };
+        
+        img.src = url;
       }
-      
-      img.onload = () => {
-        imageCache.set(url, url);
-        imageCache.loadingPromises.delete(url);
-        resolveLoad(url);
-      };
-      
-      img.onerror = (error) => {
-        imageCache.set(url, null); // Cache null to prevent repeated failed attempts
-        imageCache.loadingPromises.delete(url);
-        rejectLoad(new Error(`Failed to load image: ${url}`));
-      };
-      
-      // Start loading
-      img.src = url;
     });
 
     // Store the promise in cache
@@ -398,10 +457,12 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
       onClick={handleClick}
     >
-      {/* Loading/Error state */}
+      {/* Loading/Error state - Optimized with skeleton */}
       {imageState.isLoading && (
         <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
           <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+          {/* Skeleton shimmer effect for better perceived performance */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[shimmer_2s_infinite] ${compact ? 'rounded-lg' : 'rounded-2xl'}" />
         </div>
       )}
       
@@ -1181,40 +1242,86 @@ export default function EllendorfWallpaperApp() {
         
         setWallpapers(activeWallpapers);
         
-        // Optimized: Preload first batch with high priority, then continue in background
-        const firstBatch = activeWallpapers.slice(0, 24);
-        const firstBatchUrls = firstBatch
+        // Ultra-optimized: Use requestIdleCallback for better performance
+        const schedulePreload = (callback, delay = 0) => {
+          if ('requestIdleCallback' in window) {
+            requestIdleCallback(callback, { timeout: delay });
+          } else {
+            setTimeout(callback, delay);
+          }
+        };
+        
+        // Priority 1: Preload critical above-the-fold images immediately
+        const criticalBatch = activeWallpapers.slice(0, 12);
+        const criticalUrls = criticalBatch
           .filter(wp => wp.imageUrl)
           .map(wp => wp.imageUrl);
         
-        if (firstBatchUrls.length > 0) {
-          // Load first batch immediately with high priority
-          preloadImagesBatch(firstBatchUrls, 6, true);
+        if (criticalUrls.length > 0) {
+          // Use link prefetch for even faster loading
+          criticalUrls.forEach(url => {
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.as = 'image';
+            link.href = url;
+            document.head.appendChild(link);
+          });
           
-          // Continue loading next batches in background
-          setTimeout(() => {
-            const secondBatch = activeWallpapers.slice(24, 48);
-            const secondBatchUrls = secondBatch
-              .filter(wp => wp.imageUrl)
-              .map(wp => wp.imageUrl);
-            
-            if (secondBatchUrls.length > 0) {
-              preloadImagesBatch(secondBatchUrls, 4, false);
-            }
-          }, 200);
-          
-          // Load remaining images slowly in background
-          setTimeout(() => {
-            const remainingUrls = activeWallpapers
-              .slice(48)
-              .filter(wp => wp.imageUrl)
-              .map(wp => wp.imageUrl);
-            
-            if (remainingUrls.length > 0) {
-              preloadImagesBatch(remainingUrls, 3, false);
-            }
-          }, 1000);
+          // Also preload with high priority
+          preloadImagesBatch(criticalUrls, 8, true);
         }
+        
+        // Priority 2: Preload next visible batch (below the fold)
+        schedulePreload(() => {
+          const firstBatch = activeWallpapers.slice(12, 36);
+          const firstBatchUrls = firstBatch
+            .filter(wp => wp.imageUrl)
+            .map(wp => wp.imageUrl);
+          
+          if (firstBatchUrls.length > 0) {
+            preloadImagesBatch(firstBatchUrls, 6, true);
+          }
+        }, 50);
+        
+        // Priority 3: Continue loading next batches in background
+        schedulePreload(() => {
+          const secondBatch = activeWallpapers.slice(36, 72);
+          const secondBatchUrls = secondBatch
+            .filter(wp => wp.imageUrl)
+            .map(wp => wp.imageUrl);
+          
+          if (secondBatchUrls.length > 0) {
+            preloadImagesBatch(secondBatchUrls, 4, false);
+          }
+        }, 300);
+        
+        // Priority 4: Load remaining images slowly in background (idle time)
+        schedulePreload(() => {
+          const remainingUrls = activeWallpapers
+            .slice(72)
+            .filter(wp => wp.imageUrl)
+            .map(wp => wp.imageUrl);
+          
+          if (remainingUrls.length > 0) {
+            // Load in smaller chunks during idle time
+            let chunkIndex = 0;
+            const chunkSize = 20;
+            
+            const loadNextChunk = () => {
+              const chunk = remainingUrls.slice(chunkIndex, chunkIndex + chunkSize);
+              if (chunk.length > 0) {
+                preloadImagesBatch(chunk, 3, false);
+                chunkIndex += chunkSize;
+                
+                if (chunkIndex < remainingUrls.length) {
+                  schedulePreload(loadNextChunk, 100);
+                }
+              }
+            };
+            
+            loadNextChunk();
+          }
+        }, 1000);
       } catch (err) {
         console.error("Failed to fetch wallpapers:", err);
         setError("Failed to load wallpaper data. Please check your connection.");
@@ -1285,123 +1392,227 @@ try {
     marginBottom: 35
   };
 
-  // Function to add luxury watermark to image with STANDARDIZED sizing
+  // Function to add luxury watermark to image with STANDARDIZED sizing - Supports WebP
   const addLuxuryWatermarkToImage = (imageUrl) => {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = imageUrl;
+      // Check if image is WebP format
+      const isWebP = imageUrl.toLowerCase().includes('.webp') || 
+                     imageUrl.toLowerCase().includes('webp') ||
+                     imageUrl.toLowerCase().includes('image/webp');
       
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+      // Use fetch API for better WebP support and CORS handling
+      fetch(imageUrl, {
+        mode: 'cors',
+        credentials: 'omit'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.blob();
+      })
+      .then(blob => {
+        // Create object URL from blob (works with WebP, JPEG, PNG, etc.)
+        const objectUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
         
-        // Set canvas size to image size
-        canvas.width = img.width;
-        canvas.height = img.height;
-        
-        // Draw original image
-        ctx.drawImage(img, 0, 0, img.width, img.height);
-        
-        // Add luxury watermark - Center position
-        ctx.save();
-        
-        // Calculate center position
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        
-        // Calculate box dimensions based on STANDARD percentages
-        const boxWidth = canvas.width * STANDARD_BOX_DIMENSIONS.width;
-        const boxHeight = canvas.height * STANDARD_BOX_DIMENSIONS.height;
-        
-        // Watermark background (consistent opacity)
-        ctx.globalAlpha = 0.15;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(
-          centerX - boxWidth/2, 
-          centerY - boxHeight/2, 
-          boxWidth, 
-          boxHeight
-        );
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas size to image size
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            // Draw original image (works with WebP, JPEG, PNG, etc.)
+            ctx.drawImage(img, 0, 0, img.width, img.height);
+            
+            // Add luxury watermark - Center position
+            ctx.save();
+            
+            // Calculate center position
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // Calculate box dimensions based on STANDARD percentages
+            const boxWidth = canvas.width * STANDARD_BOX_DIMENSIONS.width;
+            const boxHeight = canvas.height * STANDARD_BOX_DIMENSIONS.height;
+            
+            // Watermark background (consistent opacity)
+            ctx.globalAlpha = 0.15;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(
+              centerX - boxWidth/2, 
+              centerY - boxHeight/2, 
+              boxWidth, 
+              boxHeight
+            );
 
-        // Main luxury branding (single line) - STANDARD FONT SIZE
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-        ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
+            // Main luxury branding (single line) - STANDARD FONT SIZE
+            ctx.globalAlpha = 0.95;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+            ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
 
-        // Subtle shadow for depth
-        ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetY = 3;
+            // Subtle shadow for depth
+            ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetY = 3;
 
-        // Brand text
-        ctx.fillText(
-          "ELLENDORF – Textile Wall Coverings",
-          centerX,
-          centerY - (boxHeight * 0.15) // Consistent positioning
-        );
+            // Brand text
+            ctx.fillText(
+              "ELLENDORF – Textile Wall Coverings",
+              centerX,
+              centerY - (boxHeight * 0.15) // Consistent positioning
+            );
 
-        // Reset shadow before drawing lines
-        ctx.shadowColor = "transparent";
-        ctx.shadowBlur = 0;
+            // Reset shadow before drawing lines
+            ctx.shadowColor = "transparent";
+            ctx.shadowBlur = 0;
 
-        // Decorative luxury divider - STANDARD POSITIONING
-        ctx.globalAlpha = 0.4;
-        ctx.strokeStyle = "rgba(0,0,0,0.6)";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.1));
-        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.1));
-        ctx.stroke();
+            // Decorative luxury divider - STANDARD POSITIONING
+            ctx.globalAlpha = 0.4;
+            ctx.strokeStyle = "rgba(0,0,0,0.6)";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.1));
+            ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.1));
+            ctx.stroke();
 
-        // Sub branding - STANDARD FONT SIZE
-        ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
-        ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
+            // Sub branding - STANDARD FONT SIZE
+            ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
+            ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
+            
+            // Premium Collection text - STANDARD FONT SIZE
+            ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
+            ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.2));
+            
+            ctx.restore();
+            
+            // STANDARD FOOTER at bottom of image
+            ctx.save();
+            const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
+            const footerWidth = canvas.width * 0.8; // 80% of image width
+            
+            // Footer background with consistent styling
+            ctx.globalAlpha = 0.08;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(
+              centerX - footerWidth/2,
+              footerY - (STANDARD_FOOTER.height/2),
+              footerWidth,
+              STANDARD_FOOTER.height
+            );
+            
+            // Footer text - STANDARD FONT SIZE
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+            ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(
+              "ELLENDORF Textile Wall Coverings - Premium Collection",
+              centerX,
+              footerY
+            );
+            ctx.restore();
+            
+            // Convert canvas to data URL - JPEG format for PDF compatibility
+            // This works regardless of source format (WebP, PNG, JPEG, etc.)
+            const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Clean up object URL
+            URL.revokeObjectURL(objectUrl);
+            
+            resolve(watermarkedImage);
+          } catch (error) {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error(`Failed to process image: ${error.message}`));
+          }
+        };
         
-        // Premium Collection text - STANDARD FONT SIZE
-        ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
-        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.2));
+        img.onerror = (error) => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error("Failed to load image for watermarking"));
+        };
         
-        ctx.restore();
+        img.src = objectUrl;
+      })
+      .catch(error => {
+        // Fallback to direct image loading if fetch fails
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = imageUrl;
         
-        // STANDARD FOOTER at bottom of image
-        ctx.save();
-        const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
-        const footerWidth = canvas.width * 0.8; // 80% of image width
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0, img.width, img.height);
+          
+          // Apply same watermark logic as above...
+          ctx.save();
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+          const boxWidth = canvas.width * STANDARD_BOX_DIMENSIONS.width;
+          const boxHeight = canvas.height * STANDARD_BOX_DIMENSIONS.height;
+          
+          ctx.globalAlpha = 0.15;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(centerX - boxWidth/2, centerY - boxHeight/2, boxWidth, boxHeight);
+          
+          ctx.globalAlpha = 0.95;
+          ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+          ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+          ctx.shadowBlur = 8;
+          ctx.shadowOffsetY = 3;
+          ctx.fillText("ELLENDORF – Textile Wall Coverings", centerX, centerY - (boxHeight * 0.15));
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          
+          ctx.globalAlpha = 0.4;
+          ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.1));
+          ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.1));
+          ctx.stroke();
+          
+          ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
+          ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
+          ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
+          ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.2));
+          ctx.restore();
+          
+          const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
+          const footerWidth = canvas.width * 0.8;
+          ctx.save();
+          ctx.globalAlpha = 0.08;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(centerX - footerWidth/2, footerY - (STANDARD_FOOTER.height/2), footerWidth, STANDARD_FOOTER.height);
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+          ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("ELLENDORF Textile Wall Coverings - Premium Collection", centerX, footerY);
+          ctx.restore();
+          
+          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
+          resolve(watermarkedImage);
+        };
         
-        // Footer background with consistent styling
-        ctx.globalAlpha = 0.08;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(
-          centerX - footerWidth/2,
-          footerY - (STANDARD_FOOTER.height/2),
-          footerWidth,
-          STANDARD_FOOTER.height
-        );
-        
-        // Footer text - STANDARD FONT SIZE
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-        ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(
-          "ELLENDORF Textile Wall Coverings - Premium Collection",
-          centerX,
-          footerY
-        );
-        ctx.restore();
-        
-        // Convert canvas to data URL with good quality
-        const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
-        resolve(watermarkedImage);
-      };
-      
-      img.onerror = () => {
-        reject(new Error("Failed to load image for watermarking"));
-      };
+        img.onerror = () => {
+          reject(new Error("Failed to load image for watermarking"));
+        };
+      });
     });
   };
 
@@ -1677,6 +1888,7 @@ try {
       <div className="flex flex-col items-center justify-center h-screen bg-black">
         <div className="w-16 h-16 border-4 border-zinc-700 border-t-blue-600 rounded-full animate-spin mb-4"></div>
         <div className="text-2xl text-zinc-400">Loading wall Coverings...</div>
+        <div className="text-sm text-zinc-500 mt-2">Optimizing for fast loading...</div>
       </div>
     );
   }
