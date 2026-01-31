@@ -36,12 +36,12 @@ export default function LuxuryLandingPage() {
     {
       icon: <Shield className="w-8 h-8" />,
       title: "Premium Materials",
-      description: "UV-resistant, bacteria-resistant, and durable materials."
+      description: "Durable, high-quality materials for a luxurious finish."
     },
     {
       icon: <Leaf className="w-8 h-8" />,
       title: "Eco-Friendly",
-      description: "Sustainable, chemical-free, and environmentally responsible."
+      description: "Sustainable materials that are kind to the environment."
     }
   ];
 
@@ -87,7 +87,7 @@ export default function LuxuryLandingPage() {
               <div className="inline-flex items-center justify-center space-x-3 bg-white/80 backdrop-blur-sm px-8 py-4 rounded-2xl shadow-lg border border-slate-200/50">
                 <Sparkles className="w-6 h-6 text-blue-500" />
                 <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                  Powered by ReImagine 
+                  Powered by ReImagine Wall
                 </span>
               </div>
             </motion.div>
