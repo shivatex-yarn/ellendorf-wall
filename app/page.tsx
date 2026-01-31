@@ -25,8 +25,8 @@ export default function LuxuryLandingPage() {
   const features = [
     {
       icon: <Wand2 className="w-8 h-8" />,
-      title: "AI-Powered Design",
-      description: "Real-time design visualization with our advanced AI technology."
+      title: "Advanced Design",
+      description: "Real-time design visualization with our  technology."
     },
     {
       icon: <Palette className="w-8 h-8" />,
@@ -235,7 +235,7 @@ export default function LuxuryLandingPage() {
                 Ellendorf
               </div>
               <p className="text-sm text-slate-500 mt-2">
-                AI-Powered Textile Wall Coverings
+                Your One-Stop Solution for Textile Wall Coverings
               </p>
             </div>
 

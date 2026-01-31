@@ -16,19 +16,19 @@ import { useAuth } from '../layout/authcontent';
 
 const sidebarSections = [
   {
-    title: 'Wallpaper Gallery',
+    title: ' Textile Wall Covering Gallery',
     items: [
       { name: 'Gallery', path: '/wallpaper', icon: Palette },
     ],
   },
   {
-    title: 'Wallcovering Collections',
+    title: ' Textile Wall covering Collections',
     items: [
       { name: 'Collections', path: '/wallcoveringcollections', icon: FileImage },
     ],
   },
   {
-    title: 'Installation',
+    title: ' RecentInstallation',
     items: [
       { name: 'Recent Installations', path: '/recentinstallation', icon: Package },
     ],
@@ -83,9 +83,9 @@ export default function Sidebar() {
           {/* Header */}
           <div className="px-4 py-6 mb-4 border-b border-gray-700">
             <h2 className="text-xl font-bold text-white">
-              Reimagine <span className="text-blue-400">AI</span>
+              Reimagine <span className="text-blue-400">Wall</span>
             </h2>
-            <p className="text-sm text-gray-400">Scot & Bels Studio</p>
+            <p className="text-sm text-gray-400">Scot & Bel Studio</p>
           </div>
 
           {/* Menu */}
@@ -136,7 +136,7 @@ export default function Sidebar() {
 
           {/* Footer */}
           <p className="text-xs text-gray-500 text-center mt-4">
-            © Internal Team Ellendorf
+            © 2026 Ellendorf. All rights reserved.
           </p>
         </div>
       </aside>

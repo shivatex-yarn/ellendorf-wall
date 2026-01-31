@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-// import { jsPDF } from 'jspdf'; // PDF import commented
 import axios from 'axios'; 
 import { 
   Loader2, 
@@ -16,12 +15,11 @@ import {
   Filter, 
   Search, 
   List, 
-  Download, 
   Eye, 
   LayoutGrid, 
   LayoutList, 
   Star,
-  FileText
+  Layers
 } from 'lucide-react';
 
 export default function Wallpaper() {
@@ -36,6 +34,8 @@ export default function Wallpaper() {
   const [viewMode, setViewMode] = useState('grid');
   const [sortBy, setSortBy] = useState('default');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
 
   const cardsPerPage = viewMode === 'grid' ? 9 : 6;
 
@@ -78,6 +78,76 @@ export default function Wallpaper() {
     return () => clearInterval(interval);
   }, []);
 
+  // Get unique subcategories from wallpapers
+  const subCategories = useMemo(() => {
+    const subCats = new Set();
+    wallpapers.forEach(wp => {
+      if (wp.subCategory?.name) {
+        subCats.add(wp.subCategory.name);
+      }
+    });
+    return Array.from(subCats).sort();
+  }, [wallpapers]);
+
+  // Search suggestions
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const results = [];
+    
+    // Search in wallpapers
+    wallpapers.forEach(wp => {
+      let matches = false;
+      
+      // Search in product code
+      if (wp.productCode?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in name
+      if (wp.name?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in description
+      if (wp.description?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in subcategory
+      if (wp.subCategory?.name?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      if (matches) {
+        results.push({
+          type: 'wallpaper',
+          data: wp,
+          highlight: wp.productCode?.toLowerCase().includes(query) ? 'productCode' : 
+                    wp.subCategory?.name?.toLowerCase().includes(query) ? 'subcategory' : 
+                    wp.name?.toLowerCase().includes(query) ? 'name' : 'description'
+        });
+      }
+    });
+    
+    // Search in subcategories
+    subCategories.forEach(subCat => {
+      if (subCat.toLowerCase().includes(query)) {
+        results.push({
+          type: 'subcategory',
+          data: subCat,
+          highlight: 'subcategory'
+        });
+      }
+    });
+    
+    setSearchResults(results);
+  }, [searchQuery, wallpapers, subCategories]);
+
   const categories = useMemo(() => {
     const cats = new Set(wallpapers.map(w => w.category?.name).filter(Boolean));
     return ['All', ...Array.from(cats)];
@@ -95,7 +165,8 @@ export default function Wallpaper() {
       filtered = filtered.filter(w => 
         w.name?.toLowerCase().includes(query) ||
         w.productCode?.toLowerCase().includes(query) ||
-        w.description?.toLowerCase().includes(query)
+        w.description?.toLowerCase().includes(query) ||
+        w.subCategory?.name?.toLowerCase().includes(query)
       );
     }
     
@@ -108,6 +179,9 @@ export default function Wallpaper() {
         break;
       case 'newest':
         filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        break;
+      case 'subcategory':
+        filtered.sort((a, b) => a.subCategory?.name?.localeCompare(b.subCategory?.name));
         break;
       default:
         break;
@@ -274,20 +348,6 @@ export default function Wallpaper() {
     });
   };
 
-  // Commented PDF generation function
-  /*
-  const generatePDF = async (wallpaper) => {
-    // ... PDF generation code commented
-  };
-  */
-
-  // Commented PDF download handler
-  /*
-  const handlePDFDownload = (wallpaper) => {
-    generatePDF(wallpaper);
-  };
-  */
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -341,13 +401,7 @@ export default function Wallpaper() {
             <div className="flex items-center space-x-3">
               <div className="relative">
                 {/* Logo commented */}
-                {/* <div className="relative text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                  Ellendorf
-                </div> */}
               </div>
-              {/* <div className="hidden md:block text-sm text-slate-600 font-medium border-l border-slate-200 pl-3">
-                Textile Wall Coverings
-              </div> */}
             </div>
           </div>
         </div>
@@ -408,11 +462,109 @@ export default function Wallpaper() {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search designs by product code"
+                  placeholder="Search by product code, name, category"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowSearchSuggestions(true);
+                  }}
+                  onFocus={() => searchQuery && setShowSearchSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
                   className="w-full pl-12 pr-4 py-3 bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50"
                 />
+                
+                {/* Search Suggestions Dropdown */}
+                {showSearchSuggestions && searchResults.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 z-50 max-h-96 overflow-y-auto"
+                  >
+                    <div className="p-2">
+                      <div className="text-xs text-slate-500 font-medium px-4 py-2">
+                        Found {searchResults.length} results for {searchQuery}
+                      </div>
+                      
+                      {searchResults.map((result, index) => (
+                        <div
+                          key={index}
+                          className="px-4 py-3 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors"
+                          onClick={() => {
+                            if (result.type === 'wallpaper') {
+                              setSelectedWallpaper(result.data);
+                            } else if (result.type === 'subcategory') {
+                              setSearchQuery(result.data);
+                              setShowSearchSuggestions(false);
+                            }
+                          }}
+                        >
+                          {result.type === 'wallpaper' ? (
+                            <div className="flex items-start gap-3">
+                              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                                <img
+                                  src={result.data.imageUrl}
+                                  alt={result.data.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-slate-900 truncate">
+                                    {result.data.name}
+                                  </span>
+                                  <span className="text-xs font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    {result.data.productCode}
+                                  </span>
+                                </div>
+                                {result.highlight === 'subcategory' && result.data.subCategory?.name && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Collection:</span>{' '}
+                                    <span className="text-blue-600">{result.data.subCategory.name}</span>
+                                  </div>
+                                )}
+                                {result.highlight === 'productCode' && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Product Code:</span>{' '}
+                                    <span className="text-blue-600">{result.data.productCode}</span>
+                                  </div>
+                                )}
+                                {result.highlight === 'name' && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Name:</span>{' '}
+                                    <span className="text-blue-600">{result.data.name}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-100 to-indigo-100 flex items-center justify-center flex-shrink-0">
+                                <Layers className="w-5 h-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-900">Collection</div>
+                                <div className="text-sm text-blue-600">{result.data}</div>
+                              </div>
+                              <div className="ml-auto text-xs text-slate-500">
+                                Click to filter
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+              
+              {/* Quick Search Tips */}
+              <div className="mt-3 text-center">
+                <p className="text-xs text-slate-500">
+                  Try searching by: <span className="text-blue-600">product code</span>,{' '}
+                  <span className="text-blue-600">name</span>,{' '}
+                  <span className="text-blue-600">collection</span>, or{' '}
+                  <span className="text-blue-600">keywords</span>
+                </p>
               </div>
             </div>
 
@@ -439,20 +591,7 @@ export default function Wallpaper() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="appearance-none bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full pl-4 pr-10 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50"
-                  >
-                    <option value="default">Default Sort</option>
-                    <option value="name">Name (A-Z)</option>
-                    <option value="code">Product Code</option>
-                    <option value="newest">Newest First</option>
-                  </select>
-                  <Star className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                </div>
+             
 
                 <div className="flex bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full p-1">
                   <Button
@@ -477,17 +616,22 @@ export default function Wallpaper() {
               </div>
             </div>
           </div>
-        </div>
+
       </section>
 
       <main className="pb-24">
         <div className="container mx-auto px-6">
           <div className="mb-12 text-center">
             <p className="text-slate-600">
-              {/* Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs */}
+              Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs
               {selectedCategory !== 'All' && (
                 <span className="ml-2">
                   in <span className="font-semibold text-indigo-600">{selectedCategory}</span>
+                </span>
+              )}
+              {searchQuery && (
+                <span className="ml-2">
+                  matching<span className="font-semibold text-green-600">{searchQuery}</span>
                 </span>
               )}
             </p>
@@ -561,18 +705,24 @@ export default function Wallpaper() {
                           </p>
                         )}
                         
-                        <div className="flex gap-2">
-                          <Button 
-                            variant="ghost" 
-                            className="flex-1 text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedWallpaper(wp);
-                            }}
-                          >
-                            <Maximize2 className="w-4 h-4 mr-2" />
-                            Preview
-                          </Button>
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                            {wp.subCategory?.name || 'Premium Collection'}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedWallpaper(wp);
+                              }}
+                            >
+                              <Maximize2 className="w-4 h-4 mr-2" />
+                              Preview
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -634,7 +784,9 @@ export default function Wallpaper() {
                           
                           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                             <div className="text-sm text-slate-500">
-                              <span>Collection: {wp.subCategory?.name || 'Premium'}</span>
+                              <span className="bg-slate-100 px-3 py-1 rounded-full">
+                                {wp.subCategory?.name || 'Premium Collection'}
+                              </span>
                             </div>
                             
                             <div className="flex gap-2">
@@ -773,11 +925,11 @@ export default function Wallpaper() {
                         </span>
                       )}
                     </div>
-                    {selectedWallpaper.description && (
+                    {/* {selectedWallpaper.description && (
                       <p className="mt-4 text-slate-600 max-w-2xl">
                         {selectedWallpaper.description}
                       </p>
-                    )}
+                    )} */}
                   </div>
                 </div>
               </div>
@@ -879,12 +1031,7 @@ export default function Wallpaper() {
               </div>
               <p className="text-sm text-slate-400 mt-4 max-w-md">
                 Premium collection of exquisite designs for modern living spaces.
-                {viewMode === 'grid' ? ' Grid view' : ' List view'} • Sorted by {
-                  sortBy === 'default' ? 'default' : 
-                  sortBy === 'name' ? 'name' : 
-                  sortBy === 'code' ? 'product code' : 
-                  'newest'
-                }
+                Elevate your decor with our stunning wall coverings.
               </p>
             </div>
             
