@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { jsPDF } from 'jspdf';
+// import { jsPDF } from 'jspdf'; // PDF import commented
 import axios from 'axios'; 
 import { 
   Loader2, 
@@ -133,8 +133,8 @@ export default function Wallpaper() {
     document.body.removeChild(link);
   };
 
- 
-  const addLuxuryWatermarkToImage = (imageUrl) => {
+  // Watermark function for images with consistent text size
+  const applyEllendorfWatermark = (imageUrl) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -154,14 +154,30 @@ export default function Wallpaper() {
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
         
-        // STRONGER Watermark background (larger & premium)
+        // Calculate font sizes based on image dimensions (percentage-based)
+        const baseSize = Math.min(canvas.width, canvas.height) * 0.08; // 8% of smaller dimension
+        const mainFontSize = Math.max(60, Math.min(baseSize, 100)); // Between 60-100px
+        const subFontSize1 = mainFontSize * 0.45; // 45% of main font
+        const subFontSize2 = mainFontSize * 0.35; // 35% of main font
+        
+        // Calculate box dimensions based on font sizes
+        const boxWidth = canvas.width * 0.7; // 70% of image width
+        const boxHeight = canvas.height * 0.15; // 15% of image height
+        
+        // Simple fix - just make the box much larger
         ctx.globalAlpha = 0.32;
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(centerX - 380, centerY - 110, 760, 220);
+        // LARGER BOX - covers entire text area
+        ctx.fillRect(
+          centerX - boxWidth/2, 
+          centerY - boxHeight/2, 
+          boxWidth, 
+          boxHeight
+        );
 
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-        ctx.font = "bold 78px 'Times New Roman', serif";
+        ctx.font = `bold ${mainFontSize}px 'Times New Roman', serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
@@ -174,10 +190,9 @@ export default function Wallpaper() {
         ctx.fillText(
           "ELLENDORF – Textile Wall Coverings",
           centerX,
-          centerY
+          centerY - (boxHeight * 0.12) // Position relative to box
         );
 
-       
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
 
@@ -186,55 +201,54 @@ export default function Wallpaper() {
         ctx.strokeStyle = "rgba(0,0,0,0.6)";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(centerX - 220, centerY + 55);
-        ctx.lineTo(centerX + 220, centerY + 55);
+        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.15));
+        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.15));
         ctx.stroke();
 
-       
-        ctx.font = "italic 32px 'Times New Roman', serif";
-        ctx.fillText("Textile Wall Coverings", centerX, centerY + 35);
+        ctx.font = `italic ${subFontSize1}px 'Times New Roman', serif`;
+        ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
         
-       
         ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(centerX - 120, centerY + 10);
-        ctx.lineTo(centerX + 120, centerY + 10);
+        ctx.moveTo(centerX - boxWidth * 0.2, centerY - (boxHeight * 0.05));
+        ctx.lineTo(centerX + boxWidth * 0.2, centerY - (boxHeight * 0.05));
         ctx.stroke();
         
-   
-        ctx.font = "italic 28px 'Times New Roman', serif";
-        ctx.fillText("Premium Collection", centerX, centerY + 45);
+        ctx.font = `italic ${subFontSize2}px 'Times New Roman', serif`;
+        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.25));
         
-      
         ctx.globalAlpha = 0.08;
         ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
         for (let i = 0; i < 6; i++) {
           ctx.beginPath();
-          ctx.arc(centerX + (i - 2.5) * 80, centerY, 50, 0, Math.PI * 2);
+          ctx.arc(centerX + (i - 2.5) * (boxWidth * 0.1), centerY, boxHeight * 0.3, 0, Math.PI * 2);
           ctx.fill();
         }
         
         ctx.restore();
         
-     
+        // Corner decorations
         ctx.save();
         ctx.globalAlpha = 0.15;
         ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
         ctx.lineWidth = 3;
         
+        // Top-left corner
         ctx.beginPath();
         ctx.moveTo(40, 40);
         ctx.lineTo(120, 40);
         ctx.lineTo(40, 120);
         ctx.stroke();
-       
+        
+        // Top-right corner
         ctx.beginPath();
         ctx.moveTo(canvas.width - 40, 40);
         ctx.lineTo(canvas.width - 120, 40);
         ctx.lineTo(canvas.width - 40, 120);
         ctx.stroke();
-        r
+        
+        // Bottom-left corner
         ctx.beginPath();
         ctx.moveTo(40, canvas.height - 40);
         ctx.lineTo(40, canvas.height - 120);
@@ -250,7 +264,6 @@ export default function Wallpaper() {
         
         ctx.restore();
         
-        
         const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
         resolve(watermarkedImage);
       };
@@ -261,261 +274,19 @@ export default function Wallpaper() {
     });
   };
 
+  // Commented PDF generation function
+  /*
   const generatePDF = async (wallpaper) => {
-    setIsGeneratingPDF(true);
-    
-    try {
-      const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      
-      // Get current timestamp
-      const currentDate = new Date();
-      const timestamp = currentDate.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      const formattedDate = currentDate.toISOString().split('T')[0];
-      
-      // Page 1: Luxury Cover Page
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
-      
-      // Add decorative border
-      doc.setDrawColor(220, 220, 220);
-      doc.setLineWidth(2);
-      doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
-      
-      // Add title with luxury styling
-      doc.setTextColor(40, 40, 40);
-      doc.setFontSize(48);
-      doc.setFont("times", "bolditalic");
-      doc.text("ELLENDORF", pageWidth / 2, 120, { align: "center" });
-      
-      // Add decorative underline
-      doc.setDrawColor(200, 180, 150);
-      doc.setLineWidth(4);
-      doc.line(pageWidth / 2 - 140, 140, pageWidth / 2 + 140, 140);
-      
-     // space BETWEEN the two lines
-
-doc.setFontSize(32);
-doc.setFont("times", "italic");
-doc.text("Textile Wall Coverings", pageWidth / 2, startY, {
-  align: "center",
-});
-
-doc.setFontSize(24);
-doc.setFont("helvetica", "normal");
-doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
-  align: "center",
-});
-
-      
-      // Add decorative element
-      doc.setFillColor(245, 245, 245);
-      doc.roundedRect(pageWidth / 2 - 200, 250, 400, 90, 10, 10, 'F');
-      
-      // Add product info inside decorative box
-      doc.setTextColor(60, 60, 60);
-      doc.setFontSize(26);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Design: ${wallpaper.name}`, pageWidth / 2, 285, { align: "center" });
-      
-      doc.setFontSize(20);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Product Code: ${wallpaper.productCode || "N/A"}`, pageWidth / 2, 320, { align: "center" });
-      
-      if (wallpaper.subCategory?.name) {
-        doc.text(`Collection: ${wallpaper.subCategory.name}`, pageWidth / 2, 350, { align: "center" });
-      }
-      
-      // Add decorative divider
-      doc.setDrawColor(220, 220, 220);
-      doc.setLineWidth(1);
-      doc.setLineDash([5, 5]);
-      doc.line(50, 380, pageWidth - 50, 380);
-      doc.setLineDash([]);
-      
-      // Add generated info
-      doc.setTextColor(80, 80, 80);
-      doc.setFontSize(22);
-      doc.setFont("times", "italic");
-      doc.text("Generated on", pageWidth / 2, 420, { align: "center" });
-      
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "normal");
-      doc.text(timestamp, pageWidth / 2, 450, { align: "center" });
-      
-      doc.setFontSize(16);
-      doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, 490, { align: "center" });
-      
-      // Add decorative corner accents on cover page
-      doc.setDrawColor(200, 180, 150);
-      doc.setLineWidth(2);
-      
-      // Top-left corner
-      doc.line(40, 40, 100, 40);
-      doc.line(40, 40, 40, 100);
-      
-      // Top-right corner
-      doc.line(pageWidth - 40, 40, pageWidth - 100, 40);
-      doc.line(pageWidth - 40, 40, pageWidth - 40, 100);
-      
-      // Bottom-left corner
-      doc.line(40, pageHeight - 40, 100, pageHeight - 40);
-      doc.line(40, pageHeight - 40, 40, pageHeight - 100);
-      
-      // Bottom-right corner
-      doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 80, pageHeight - 40);
-      doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 40, pageHeight - 100);
-      
-      // Page 2: Watermarked Image Page
-      doc.addPage();
-      
-      // Set white background for content pages
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
-      
-      // Add thinner decorative border to content pages
-      doc.setDrawColor(240, 240, 240);
-      doc.setLineWidth(0.5);
-      doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
-
-      try {
-        // Add luxury watermark directly to the image
-        const watermarkedImage = await addLuxuryWatermarkToImage(wallpaper.imageUrl);
-        const img = new Image();
-        img.src = watermarkedImage;
-        
-        await new Promise((resolve, reject) => {
-          img.onload = () => {
-            const imgRatio = img.width / img.height;
-            
-            // BIGGER image area - use more of the page
-            const maxImageWidth = pageWidth - 40;
-            const maxImageHeight = pageHeight - 160;
-            
-            let drawWidth, drawHeight;
-            
-            if (imgRatio > 1) {
-              // Landscape image
-              drawWidth = maxImageWidth;
-              drawHeight = maxImageWidth / imgRatio;
-            } else {
-              // Portrait image
-              drawHeight = maxImageHeight;
-              drawWidth = maxImageHeight * imgRatio;
-            }
-            
-            // Center the larger image
-            const x = (pageWidth - drawWidth) / 2;
-            const y = 30;
-            
-            // Add the BIGGER watermarked image
-            doc.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
-            
-            // Add compact information box below image
-            doc.setFillColor(250, 250, 250);
-            doc.roundedRect(40, y + drawHeight + 20, pageWidth - 80, 60, 5, 5, 'F');
-            
-            doc.setDrawColor(230, 230, 230);
-            doc.setLineWidth(1);
-            doc.roundedRect(40, y + drawHeight + 20, pageWidth - 80, 60, 5, 5);
-            
-            // Add wallpaper details
-            doc.setTextColor(40, 40, 40);
-            doc.setFontSize(20);
-            doc.setFont("helvetica", "bold");
-            doc.text(wallpaper.name || "Untitled", pageWidth / 2, y + drawHeight + 45, { align: "center" });
-            
-            doc.setFontSize(16);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Product Code: ${wallpaper.productCode || "N/A"}`, pageWidth / 2, y + drawHeight + 75, { align: "center" });
-            
-            // Add page footer with luxury styling
-            doc.setFillColor(245, 245, 245);
-            doc.rect(0, pageHeight - 50, pageWidth, 50, 'F');
-            
-            // Add decorative top border to footer
-            doc.setDrawColor(220, 220, 220);
-            doc.setLineWidth(1);
-            doc.line(0, pageHeight - 50, pageWidth, pageHeight - 50);
-            
-            // Add timestamp at bottom
-            doc.setTextColor(100, 100, 100);
-            doc.setFontSize(12);
-            doc.setFont("helvetica", "normal");
-            doc.text(timestamp, pageWidth / 2, pageHeight - 30, { align: "center" });
-            
-            // Add page number in center
-            doc.setFontSize(12);
-            doc.setFont("helvetica", "italic");
-            doc.text(`Page 2 of 2`, pageWidth / 2, pageHeight - 15, { align: "center" });
-            
-            // Add brand footer
-            doc.setTextColor(150, 150, 150);
-            doc.setFontSize(10);
-            doc.text("ELLENDORF Luxury Textile Wall Coverings", pageWidth / 2, pageHeight - 5, { align: "center" });
-            
-            resolve();
-          };
-          img.onerror = reject;
-        });
-      } catch (err) {
-        console.error("Error loading or watermarking image:", err);
-        
-        // Fallback: Show error message with styling
-        doc.setTextColor(150, 150, 150);
-        doc.setFontSize(24);
-        doc.setFont("helvetica", "italic");
-        doc.text("Image unavailable", pageWidth / 2, pageHeight / 2 - 30, { align: "center" });
-        
-        doc.setFontSize(18);
-        doc.setFont("helvetica", "normal");
-        doc.text(wallpaper.name || "Untitled", pageWidth / 2, pageHeight / 2 + 10, { align: "center" });
-        doc.text(`Code: ${wallpaper.productCode || "N/A"}`, pageWidth / 2, pageHeight / 2 + 40, { align: "center" });
-        
-        // Still add footer for consistency
-        doc.setFillColor(245, 245, 245);
-        doc.rect(0, pageHeight - 50, pageWidth, 50, 'F');
-        doc.setDrawColor(220, 220, 220);
-        doc.setLineWidth(1);
-        doc.line(0, pageHeight - 50, pageWidth, pageHeight - 50);
-        
-        doc.setTextColor(100, 100, 100);
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "normal");
-        doc.text(timestamp, pageWidth / 2, pageHeight - 30, { align: "center" });
-        
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "italic");
-        doc.text(`Page 2 of 2`, pageWidth / 2, pageHeight - 15, { align: "center" });
-        
-        doc.setTextColor(150, 150, 150);
-        doc.setFontSize(10);
-        doc.text("ELLENDORF Luxury Collection", pageWidth / 2, pageHeight - 5, { align: "center" });
-      }
-
-      // Save the PDF with luxury name
-      const fileName = `Ellendorf_Luxury_${wallpaper.productCode || wallpaper.name.substring(0, 20).replace(/\s+/g, '_')}_${formattedDate}.pdf`;
-      doc.save(fileName);
-      
-    } catch (error) {
-      console.error("PDF generation error:", error);
-      alert("Failed to generate luxury brochure. Please try again.");
-    } finally {
-      setIsGeneratingPDF(false);
-    }
+    // ... PDF generation code commented
   };
+  */
 
+  // Commented PDF download handler
+  /*
   const handlePDFDownload = (wallpaper) => {
     generatePDF(wallpaper);
   };
+  */
 
   if (loading) {
     return (
@@ -569,7 +340,7 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="relative">
-              
+                {/* Logo commented */}
                 {/* <div className="relative text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
                   Ellendorf
                 </div> */}
@@ -767,21 +538,6 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
                           >
                             <Eye className="w-4 h-4 text-slate-600" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="secondary"
-                            className="bg-white/90 backdrop-blur-sm hover:bg-white rounded-full"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePDFDownload(wp);
-                            }}
-                          >
-                            {isGeneratingPDF ? (
-                              <Loader2 className="w-4 h-4 text-slate-600 animate-spin" />
-                            ) : (
-                              <FileText className="w-4 h-4 text-slate-600" />
-                            )}
-                          </Button>
                         </div>
                         
                         <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium text-slate-700 shadow-sm">
@@ -816,22 +572,6 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
                           >
                             <Maximize2 className="w-4 h-4 mr-2" />
                             Preview
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            className="flex-1 text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePDFDownload(wp);
-                            }}
-                            disabled={isGeneratingPDF}
-                          >
-                            {isGeneratingPDF ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                              <FileText className="w-4 h-4 mr-2" />
-                            )}
-                            Download
                           </Button>
                         </div>
                       </div>
@@ -910,22 +650,6 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
                                 <Eye className="w-4 h-4 mr-2" />
                                 Preview
                               </Button>
-                              <Button
-                                size="sm"
-                                className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handlePDFDownload(wp);
-                                }}
-                                disabled={isGeneratingPDF}
-                              >
-                                {isGeneratingPDF ? (
-                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : (
-                                  <FileText className="w-4 h-4 mr-2" />
-                                )}
-                                Download
-                              </Button>
                             </div>
                           </div>
                         </div>
@@ -981,7 +705,7 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
                         }`}
                       >
                         {pageNum}
-                      </Button>
+                    </Button>
                     );
                   })}
                 </div>
@@ -1055,21 +779,6 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
                       </p>
                     )}
                   </div>
-                  
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => handlePDFDownload(selectedWallpaper)}
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                      disabled={isGeneratingPDF}
-                    >
-                      {isGeneratingPDF ? (
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      ) : (
-                        <FileText className="w-5 h-5 mr-2" />
-                      )}
-                      Download
-                    </Button>
-                  </div>
                 </div>
               </div>
 
@@ -1082,11 +791,73 @@ doc.text("Premium Collection", pageWidth / 2, startY + lineGap, {
               </Button>
 
               <Button
-                onClick={() => window.open(selectedWallpaper.imageUrl, '_blank')}
+                onClick={async () => {
+                  try {
+                    // Show loading state
+                    setIsGeneratingPDF(true);
+                    
+                    // Apply watermark
+                    const watermarkedImage = await applyEllendorfWatermark(selectedWallpaper.imageUrl);
+                    
+                    // Open in new tab
+                    const newWindow = window.open();
+                    newWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>${selectedWallpaper.name} - ELLENDORF Wall Coverings</title>
+                          <style>
+                            body { 
+                              margin: 0; 
+                              background: #f5f5f5; 
+                              display: flex; 
+                              justify-content: center; 
+                              align-items: center; 
+                              min-height: 100vh;
+                            }
+                            img { 
+                              max-width: 95vw; 
+                              max-height: 95vh; 
+                              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                              border-radius: 12px;
+                            }
+                            .watermark-note {
+                              position: fixed;
+                              bottom: 20px;
+                              left: 0;
+                              right: 0;
+                              text-align: center;
+                              color: #666;
+                              font-size: 14px;
+                              font-family: 'Times New Roman', serif;
+                              font-style: italic;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          <img src="${watermarkedImage}" alt="${selectedWallpaper.name}" />
+                          <div class="watermark-note">ELLENDORF Textile Wall Coverings - Premium Collection</div>
+                        </body>
+                      </html>
+                    `);
+                    newWindow.document.close();
+                    
+                    setIsGeneratingPDF(false);
+                  } catch (error) {
+                    console.error("Error opening watermarked image:", error);
+                    setIsGeneratingPDF(false);
+                    // Fallback to original image
+                    window.open(selectedWallpaper.imageUrl, '_blank');
+                  }
+                }}
                 className="absolute top-6 left-6 bg-white/80 hover:bg-white backdrop-blur-sm text-slate-700"
+                disabled={isGeneratingPDF}
               >
-                <Maximize2 className="w-5 h-5 mr-2" />
-                Full View
+                {isGeneratingPDF ? (
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <Maximize2 className="w-5 h-5 mr-2" />
+                )}
+                {isGeneratingPDF ? "Adding Watermark..." : "Full View with Watermark"}
               </Button>
             </motion.div>
           </motion.div>

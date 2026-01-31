@@ -91,7 +91,7 @@ export default function Auth() {
       toast.success(
         <div className="flex flex-col gap-1">
           <span className="font-bold">Welcome to Ellendorf</span>
-          <span className="text-sm opacity-90">Powered by Reimagine AI</span>
+          <span className="text-sm opacity-90">Powered by Reimagine Wall </span>
         </div>,
         {
           duration: 4000,
