@@ -4,32 +4,31 @@ import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Bot,
-  Users,
-  User,
   Palette,
-  Eye,
-  LogOut,
-  Home,
-  Menu,
-  Wrench,
-  Camera,
-  Sparkles,
-  Package,
   FileImage,
+  Package,
+  Sparkles,
+  LogOut,
+  Menu,
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { useAuth } from '../layout/authcontent';
 
 const sidebarSections = [
-
   {
-    title: 'Design Gallery',
+    title: ' Textile Wall Covering Gallery',
     items: [
-          { name: 'Wallpaper Gallery', path: '/wallpaper', icon: Palette },
-      { name: 'Wallpaper Collection', path: '/wallpapercollection', icon: FileImage },
+      { name: 'Gallery', path: '/wallpaper', icon: Palette },
     ],
   },
   {
-    title: 'Installation',
+    title: ' Textile Wall covering Collections',
+    items: [
+      { name: 'Collections', path: '/wallcoveringcollections', icon: FileImage },
+    ],
+  },
+  {
+    title: ' RecentInstallation',
     items: [
       { name: 'Recent Installations', path: '/recentinstallation', icon: Package },
     ],
@@ -46,8 +45,23 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const { logout } = useAuth();
 
+  // JSX-friendly (no TypeScript)
   const isActive = (path) => pathname === path;
+
+  const handleLogout = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    logout();
+
+    toast.success('Logged out successfully', {
+      position: 'top-right',
+      duration: 3000,
+    });
+
+    router.push('/');
+  };
 
   return (
     <>
@@ -69,9 +83,9 @@ export default function Sidebar() {
           {/* Header */}
           <div className="px-4 py-6 mb-4 border-b border-gray-700">
             <h2 className="text-xl font-bold text-white">
-              Reimagine <span className="text-blue-400">AI</span>
+              Reimagine <span className="text-blue-400">Wall</span>
             </h2>
-            <p className="text-sm text-gray-400">Scot & Bels Studio</p>
+            <p className="text-sm text-gray-400">Scot & Bel Studio</p>
           </div>
 
           {/* Menu */}
@@ -112,7 +126,7 @@ export default function Sidebar() {
           {/* Logout */}
           <div className="pt-3 mt-auto border-t border-gray-700">
             <button
-              onClick={() => router.push('/')}
+              onClick={handleLogout}
               className="flex items-center w-full p-3 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition"
             >
               <LogOut className="w-5 h-5 text-red-400" />
@@ -122,7 +136,7 @@ export default function Sidebar() {
 
           {/* Footer */}
           <p className="text-xs text-gray-500 text-center mt-4">
-            © Internal Team Ellendorf
+            © 2026 Ellendorf. All rights reserved.
           </p>
         </div>
       </aside>

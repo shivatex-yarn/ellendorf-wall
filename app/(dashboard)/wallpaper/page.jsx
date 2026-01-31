@@ -24,8 +24,14 @@ export default function Wallpaper() {
   const [wallpapers, setWallpapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('grid');
+  const [sortBy, setSortBy] = useState('default');
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
 
-  const cardsPerPage = 6;
+  const cardsPerPage = viewMode === 'grid' ? 9 : 6;
 
   const quotes = [
     "Your walls deserve art, not just paint.",
@@ -46,6 +52,9 @@ export default function Wallpaper() {
     };
 
     const fetchWallpapers = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
         setLoading(true);
         const first = await fetchChunk(1);
@@ -103,17 +112,117 @@ export default function Wallpaper() {
     return () => clearInterval(interval);
   }, []);
 
+  // Get unique subcategories from wallpapers
+  const subCategories = useMemo(() => {
+    const subCats = new Set();
+    wallpapers.forEach(wp => {
+      if (wp.subCategory?.name) {
+        subCats.add(wp.subCategory.name);
+      }
+    });
+    return Array.from(subCats).sort();
+  }, [wallpapers]);
+
+  // Search suggestions
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const results = [];
+    
+    // Search in wallpapers
+    wallpapers.forEach(wp => {
+      let matches = false;
+      
+      // Search in product code
+      if (wp.productCode?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in name
+      if (wp.name?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in description
+      if (wp.description?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      // Search in subcategory
+      if (wp.subCategory?.name?.toLowerCase().includes(query)) {
+        matches = true;
+      }
+      
+      if (matches) {
+        results.push({
+          type: 'wallpaper',
+          data: wp,
+          highlight: wp.productCode?.toLowerCase().includes(query) ? 'productCode' : 
+                    wp.subCategory?.name?.toLowerCase().includes(query) ? 'subcategory' : 
+                    wp.name?.toLowerCase().includes(query) ? 'name' : 'description'
+        });
+      }
+    });
+    
+    // Search in subcategories
+    subCategories.forEach(subCat => {
+      if (subCat.toLowerCase().includes(query)) {
+        results.push({
+          type: 'subcategory',
+          data: subCat,
+          highlight: 'subcategory'
+        });
+      }
+    });
+    
+    setSearchResults(results);
+  }, [searchQuery, wallpapers, subCategories]);
+
   const categories = useMemo(() => {
     const cats = new Set(wallpapers.map(w => w.category?.name).filter(Boolean));
     return ['All', ...Array.from(cats)];
   }, [wallpapers]);
 
   const filteredWallpapers = useMemo(() => {
-    const active = wallpapers; // already filtered
-    return selectedCategory === 'All'
-      ? active
-      : active.filter(w => w.category?.name === selectedCategory);
-  }, [wallpapers, selectedCategory]);
+    let filtered = [...wallpapers];
+    
+    if (selectedCategory !== 'All') {
+      filtered = filtered.filter(w => w.category?.name === selectedCategory);
+    }
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(w => 
+        w.name?.toLowerCase().includes(query) ||
+        w.productCode?.toLowerCase().includes(query) ||
+        w.description?.toLowerCase().includes(query) ||
+        w.subCategory?.name?.toLowerCase().includes(query)
+      );
+    }
+    
+    switch (sortBy) {
+      case 'name':
+        filtered.sort((a, b) => a.name?.localeCompare(b.name));
+        break;
+      case 'code':
+        filtered.sort((a, b) => a.productCode?.localeCompare(b.productCode));
+        break;
+      case 'newest':
+        filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        break;
+      case 'subcategory':
+        filtered.sort((a, b) => a.subCategory?.name?.localeCompare(b.subCategory?.name));
+        break;
+      default:
+        break;
+    }
+    
+    return filtered;
+  }, [wallpapers, selectedCategory, searchQuery, sortBy]);
 
   const totalPages = Math.ceil(filteredWallpapers.length / cardsPerPage);
   const paginated = filteredWallpapers.slice(
@@ -121,7 +230,157 @@ export default function Wallpaper() {
     currentPage * cardsPerPage
   );
 
-  useEffect(() => setCurrentPage(1), [selectedCategory]);
+  useEffect(() => setCurrentPage(1), [selectedCategory, searchQuery, viewMode]);
+
+  const handleImageDownload = (url, name) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${name.replace(/\s+/g, '_')}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Watermark function for images with consistent text size
+  const applyEllendorfWatermark = (imageUrl) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = imageUrl;
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        
+        // Draw original image
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+        ctx.save();
+        
+        // Calculate center position
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        
+        // Calculate font sizes based on image dimensions (percentage-based)
+        const baseSize = Math.min(canvas.width, canvas.height) * 0.08; // 8% of smaller dimension
+        const mainFontSize = Math.max(60, Math.min(baseSize, 100)); // Between 60-100px
+        const subFontSize1 = mainFontSize * 0.45; // 45% of main font
+        const subFontSize2 = mainFontSize * 0.35; // 35% of main font
+        
+        // Calculate box dimensions based on font sizes
+        const boxWidth = canvas.width * 0.7; // 70% of image width
+        const boxHeight = canvas.height * 0.15; // 15% of image height
+        
+        // Simple fix - just make the box much larger
+        ctx.globalAlpha = 0.32;
+        ctx.fillStyle = "#ffffff";
+        // LARGER BOX - covers entire text area
+        ctx.fillRect(
+          centerX - boxWidth/2, 
+          centerY - boxHeight/2, 
+          boxWidth, 
+          boxHeight
+        );
+
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+        ctx.font = `bold ${mainFontSize}px 'Times New Roman', serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        // Subtle shadow for depth
+        ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 3;
+
+        // Brand text
+        ctx.fillText(
+          "ELLENDORF – Textile Wall Coverings",
+          centerX,
+          centerY - (boxHeight * 0.12) // Position relative to box
+        );
+
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        // Decorative luxury divider
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.15));
+        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.15));
+        ctx.stroke();
+
+        ctx.font = `italic ${subFontSize1}px 'Times New Roman', serif`;
+        ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
+        
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX - boxWidth * 0.2, centerY - (boxHeight * 0.05));
+        ctx.lineTo(centerX + boxWidth * 0.2, centerY - (boxHeight * 0.05));
+        ctx.stroke();
+        
+        ctx.font = `italic ${subFontSize2}px 'Times New Roman', serif`;
+        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.25));
+        
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        for (let i = 0; i < 6; i++) {
+          ctx.beginPath();
+          ctx.arc(centerX + (i - 2.5) * (boxWidth * 0.1), centerY, boxHeight * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        
+        ctx.restore();
+        
+        // Corner decorations
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.lineWidth = 3;
+        
+        // Top-left corner
+        ctx.beginPath();
+        ctx.moveTo(40, 40);
+        ctx.lineTo(120, 40);
+        ctx.lineTo(40, 120);
+        ctx.stroke();
+        
+        // Top-right corner
+        ctx.beginPath();
+        ctx.moveTo(canvas.width - 40, 40);
+        ctx.lineTo(canvas.width - 120, 40);
+        ctx.lineTo(canvas.width - 40, 120);
+        ctx.stroke();
+        
+        // Bottom-left corner
+        ctx.beginPath();
+        ctx.moveTo(40, canvas.height - 40);
+        ctx.lineTo(40, canvas.height - 120);
+        ctx.lineTo(120, canvas.height - 40);
+        ctx.stroke();
+        
+        // Bottom-right corner
+        ctx.beginPath();
+        ctx.moveTo(canvas.width - 40, canvas.height - 40);
+        ctx.lineTo(canvas.width - 40, canvas.height - 120);
+        ctx.lineTo(canvas.width - 120, canvas.height - 40);
+        ctx.stroke();
+        
+        ctx.restore();
+        
+        const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
+        resolve(watermarkedImage);
+      };
+      
+      img.onerror = () => {
+        reject(new Error("Failed to load image for watermarking"));
+      };
+    });
+  };
 
   // Prefetch next page images for smoother pagination (5k-friendly)
   useEffect(() => {
@@ -138,10 +397,21 @@ export default function Wallpaper() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <motion.div className="text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <Loader2 className="w-20 h-20 text-blue-600 animate-spin mb-6" />
-          <p className="text-2xl font-light text-blue-700">Curating your collection...</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <motion.div 
+          className="text-center" 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }}
+        >
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="inline-block mb-8"
+          >
+            <div className="w-20 h-20 border-4 border-transparent border-t-blue-500 border-r-blue-500 rounded-full" />
+          </motion.div>
+          <p className="text-2xl font-light text-slate-700">Curating Luxury Collection...</p>
+          <p className="text-sm text-slate-500 mt-2">Loading premium designs</p>
         </motion.div>
       </div>
     );
@@ -149,94 +419,290 @@ export default function Wallpaper() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-8">
-        <div className="text-center p-12 bg-gray-50 rounded-3xl shadow-xl border">
-          <p className="text-xl text-blue-800 mb-6">{error}</p>
-          <Button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-700">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-8">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="text-center p-12 bg-white/80 backdrop-blur-sm rounded-3xl border border-slate-200/50 shadow-2xl max-w-md"
+        >
+          <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6">
+            <X className="w-8 h-8 text-red-400" />
+          </div>
+          <p className="text-xl text-slate-700 mb-6">{error}</p>
+          <Button 
+            onClick={() => window.location.reload()} 
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+          >
             Try Again
           </Button>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="min-h-screen bg-white text-gray-800 overflow-hidden relative">
-        <div className="fixed inset-0 opacity-5 pointer-events-none">
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `radial-gradient(circle at 25% 75%, #e5e7eb 0%, transparent 50%),
-                               radial-gradient(circle at 75% 25%, #d1d5db 0%, transparent 50%)`
-            }}
-          />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+      <header className="sticky ">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="relative">
+                {/* Logo commented */}
+              </div>
+            </div>
+          </div>
         </div>
+      </header>
 
-        <div className="relative z-10 max-w-7xl px-4 sm:px-10 sm:ml-72 py-10 space-y-10">
-          <motion.div className="text-center mb-24" initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}>
+      <section className="relative min-h-[40vh] flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-blue-50/30"></div>
+        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 left-20 w-96 h-96 bg-gradient-to-br from-indigo-400/10 to-blue-600/10 rounded-full blur-3xl"></div>
+        
+        <div className="container mx-auto px-6 relative z-10">
+          <div className="max-w-5xl mx-auto text-center">
             <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-              className="inline-block mb-8"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+              className="mb-8"
             >
-              <Sparkles className="w-16 h-16 text-blue-400" />
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+                className="inline-block mb-6"
+              >
+                <Sparkles className="w-12 h-12 text-blue-400" />
+              </motion.div>
+              
+              <h1 className="text-4xl md:text-5xl font-bold mb-4">
+                <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
+                  Luxury Textile
+                </span>
+                <br />
+                <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
+                  Wall Coverings
+                </span>
+              </h1>
+              
+              <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+                Premium collection of exquisite designs for your living spaces
+              </p>
             </motion.div>
-            <h1 className="text-3xl md:text-3xl bg-gradient-to-r from-blue-600 via-indigo-700 to-blue-800 bg-clip-text text-transparent mb-6">
-              ELLENDORF
-            </h1>
-            <p className="text-2xl md:text-4xl font-light text-blue-600 tracking-widest">
-              Luxury Wallpaper Collection
-            </p>
-          </motion.div>
 
-          <motion.div
-            key={quoteIndex}
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="text-center mb-20 px-10"
-          >
-            <p className="text-3xl md:text-5xl font-light italic text-blue-600 max-w-6xl mx-auto leading-relaxed">
-              {quotes[quoteIndex]}
-            </p>
-          </motion.div>
+            <motion.div
+              key={quoteIndex}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-8"
+            >
+              <div className="inline-block bg-white/80 backdrop-blur-sm px-6 py-4 rounded-2xl border border-slate-200/50 shadow-lg">
+                <p className="text-xl font-light italic text-slate-600">
+                  {quotes[quoteIndex]}
+                </p>
+              </div>
+            </motion.div>
 
-          <div className="flex flex-wrap justify-center gap-6 mb-20">
-            <div className="flex flex-wrap gap-4 items-center">
-              <span className="text-lg font-semibold text-blue-700">Explore by Collection:</span>
-              {categories.map(cat => (
-                <Button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  variant={selectedCategory === cat ? "default" : "outline"}
-                  className={`rounded-full px-10 py-4 text-lg font-medium transition-all shadow-lg ${
-                    selectedCategory === cat
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:from-blue-700 hover:to-indigo-800 hover:scale-105'
-                      : 'border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400'
-                  }`}
-                >
-                  {cat}
-                </Button>
-              ))}
+            <div className="max-w-xl mx-auto mb-8">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by product code, name, category"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowSearchSuggestions(true);
+                  }}
+                  onFocus={() => searchQuery && setShowSearchSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
+                  className="w-full pl-12 pr-4 py-3 bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50"
+                />
+                
+                {/* Search Suggestions Dropdown */}
+                {showSearchSuggestions && searchResults.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 z-50 max-h-96 overflow-y-auto"
+                  >
+                    <div className="p-2">
+                      <div className="text-xs text-slate-500 font-medium px-4 py-2">
+                        Found {searchResults.length} results for {searchQuery}
+                      </div>
+                      
+                      {searchResults.map((result, index) => (
+                        <div
+                          key={index}
+                          className="px-4 py-3 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors"
+                          onClick={() => {
+                            if (result.type === 'wallpaper') {
+                              setSelectedWallpaper(result.data);
+                            } else if (result.type === 'subcategory') {
+                              setSearchQuery(result.data);
+                              setShowSearchSuggestions(false);
+                            }
+                          }}
+                        >
+                          {result.type === 'wallpaper' ? (
+                            <div className="flex items-start gap-3">
+                              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                                <img
+                                  src={result.data.imageUrl}
+                                  alt={result.data.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-slate-900 truncate">
+                                    {result.data.name}
+                                  </span>
+                                  <span className="text-xs font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    {result.data.productCode}
+                                  </span>
+                                </div>
+                                {result.highlight === 'subcategory' && result.data.subCategory?.name && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Collection:</span>{' '}
+                                    <span className="text-blue-600">{result.data.subCategory.name}</span>
+                                  </div>
+                                )}
+                                {result.highlight === 'productCode' && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Product Code:</span>{' '}
+                                    <span className="text-blue-600">{result.data.productCode}</span>
+                                  </div>
+                                )}
+                                {result.highlight === 'name' && (
+                                  <div className="text-xs text-slate-600">
+                                    <span className="font-medium">Name:</span>{' '}
+                                    <span className="text-blue-600">{result.data.name}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-100 to-indigo-100 flex items-center justify-center flex-shrink-0">
+                                <Layers className="w-5 h-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-900">Collection</div>
+                                <div className="text-sm text-blue-600">{result.data}</div>
+                              </div>
+                              <div className="ml-auto text-xs text-slate-500">
+                                Click to filter
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+              
+              {/* Quick Search Tips */}
+              <div className="mt-3 text-center">
+                <p className="text-xs text-slate-500">
+                  Try searching by: <span className="text-blue-600">product code</span>,{' '}
+                  <span className="text-blue-600">name</span>,{' '}
+                  <span className="text-blue-600">collection</span>, or{' '}
+                  <span className="text-blue-600">keywords</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
+              <div className="flex flex-wrap justify-center gap-4">
+                <div className="flex items-center gap-2 text-slate-600 font-medium">
+                  <Filter className="w-4 h-4" />
+                  Collections:
+                </div>
+                {categories.map(cat => (
+                  <Button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    variant={selectedCategory === cat ? "default" : "ghost"}
+                    size="sm"
+                    className={`rounded-full ${
+                      selectedCategory === cat
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white'
+                        : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
+                    }`}
+                  >
+                    {cat}
+                  </Button>
+                ))}
+              </div>
+
+             
+
+                <div className="flex bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-full p-1">
+                  <Button
+                    onClick={() => setViewMode('grid')}
+                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                    size="sm"
+                    className={`rounded-full px-4 ${viewMode === 'grid' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}`}
+                  >
+                    <LayoutGrid className="w-4 h-4 mr-2" />
+                    Grid
+                  </Button>
+                  <Button
+                    onClick={() => setViewMode('list')}
+                    variant={viewMode === 'list' ? 'default' : 'ghost'}
+                    size="sm"
+                    className={`rounded-full px-4 ${viewMode === 'list' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}`}
+                  >
+                    <LayoutList className="w-4 h-4 mr-2" />
+                    List
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
 
-          <motion.div layout className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 mb-24">
-            <AnimatePresence mode="popLayout">
-              {paginated.map((wp, i) => (
-                <motion.div
-                  key={wp.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="group relative"
-                >
-                  <div
-                    className="relative rounded-3xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-700 cursor-pointer bg-white border border-blue-100"
-                    onClick={() => setSelectedWallpaper(wp)}
+      </section>
+
+      <main className="pb-24">
+        <div className="container mx-auto px-6">
+          <div className="mb-12 text-center">
+            <p className="text-slate-600">
+              Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs
+              {selectedCategory !== 'All' && (
+                <span className="ml-2">
+                  in <span className="font-semibold text-indigo-600">{selectedCategory}</span>
+                </span>
+              )}
+              {searchQuery && (
+                <span className="ml-2">
+                  matching<span className="font-semibold text-green-600">{searchQuery}</span>
+                </span>
+              )}
+            </p>
+          </div>
+
+          {viewMode === 'grid' ? (
+            <motion.div 
+              layout
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-16"
+            >
+              <AnimatePresence mode="popLayout">
+                {paginated.map((wp, i) => (
+                  <motion.div
+                    key={wp.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                    transition={{ 
+                      duration: 0.4,
+                      delay: i * 0.05,
+                      layout: { duration: 0.3 }
+                    }}
+                    className="group relative"
                   >
                     <div className="aspect-[4/5] relative">
                       <LazyImage
@@ -248,123 +714,381 @@ export default function Wallpaper() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-90 transition-opacity duration-500" />
                     </div>
 
-                    <motion.div
-                      initial={{ opacity: 0, y: 40 }}
-                      whileHover={{ opacity: 1, y: 0 }}
-                      className="absolute bottom-0 left-0 right-0 p-8 text-white"
-                    >
-                      <h3 className="text-2xl font-bold mb-2">{wp.name}</h3>
-                      <p className="text-blue-200 text-sm mb-4 font-medium">{wp.productCode}</p>
-                      <Button className="bg-white text-blue-700 hover:bg-blue-50 font-semibold shadow-lg">
-                        <Maximize2 className="w-5 h-5 mr-2" />
-                        View in Full Glory
-                      </Button>
-                    </motion.div>
-
-                    <div className="absolute top-6 left-6 bg-white/95 backdrop-blur px-5 py-2.5 rounded-full text-blue-700 font-semibold text-sm shadow-md border border-blue-200">
-                      {wp.subCategory?.name || "Exclusive"}
+                      <div className="p-6 bg-white">
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="text-lg font-semibold text-slate-900 truncate">
+                            {wp.name}
+                          </h3>
+                          <span className="text-sm font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            {wp.productCode}
+                          </span>
+                        </div>
+                        
+                        {wp.description && (
+                          <p className="text-sm text-slate-600 line-clamp-2 mb-4">
+                            {wp.description}
+                          </p>
+                        )}
+                        
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                            {wp.subCategory?.name || 'Premium Collection'}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedWallpaper(wp);
+                              }}
+                            >
+                              <Maximize2 className="w-4 h-4 mr-2" />
+                              Preview
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </motion.div>
-
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-8 my-20">
-              <Button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                variant="outline"
-                className="border-blue-300 text-blue-700 hover:bg-blue-50 rounded-full px-10 py-5"
-              >
-                <ChevronLeft className="w-6 h-6" />
-              </Button>
-              <span className="text-xl font-medium text-blue-700">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                variant="outline"
-                className="border-blue-300 text-blue-700 hover:bg-blue-50 rounded-full px-10 py-5"
-              >
-                <ChevronRight className="w-6 h-6" />
-              </Button>
-            </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          ) : (
+            <motion.div 
+              layout
+              className="space-y-6 mb-16"
+            >
+              <AnimatePresence mode="popLayout">
+                {paginated.map((wp, i) => (
+                  <motion.div
+                    key={wp.id}
+                    layout
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ 
+                      duration: 0.4,
+                      delay: i * 0.05
+                    }}
+                  >
+                    <div
+                      className="group bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200/50 cursor-pointer"
+                      onClick={() => setSelectedWallpaper(wp)}
+                    >
+                      <div className="flex flex-col md:flex-row">
+                        <div className="md:w-1/3 relative overflow-hidden">
+                          <img
+                            src={wp.imageUrl}
+                            alt={wp.name}
+                            className="w-full h-64 md:h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          />
+                          <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium text-slate-700">
+                            {wp.subCategory?.name || "Premium"}
+                          </div>
+                        </div>
+                        
+                        <div className="md:w-2/3 p-6 flex flex-col justify-between">
+                          <div>
+                            <div className="flex flex-col md:flex-row md:items-start justify-between mb-3">
+                              <h3 className="text-xl font-semibold text-slate-900 mb-2 md:mb-0">
+                                {wp.name}
+                              </h3>
+                              <span className="text-sm font-mono text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                                {wp.productCode}
+                              </span>
+                            </div>
+                            
+                            {wp.description && (
+                              <p className="text-slate-600 mb-4 line-clamp-3">
+                                {wp.description}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                            <div className="text-sm text-slate-500">
+                              <span className="bg-slate-100 px-3 py-1 rounded-full">
+                                {wp.subCategory?.name || 'Premium Collection'}
+                              </span>
+                            </div>
+                            
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedWallpaper(wp);
+                                }}
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                Preview
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
           )}
 
-          <div className="grid md:grid-cols-3 gap-10 my-32">
-            {[
-              { icon: Eye, title: "Room Preview", desc: "See it in your space before you buy" },
-              { icon: Sparkles, title: "Fully Customizable", desc: "Your vision, perfectly realized" },
-              { icon: Sparkles, title: "Premium Materials", desc: "Only the finest for your home" },
-            ].map((f, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 40 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                className="text-center p-10 rounded-3xl bg-white border border-blue-100 shadow-xl hover:shadow-2xl transition-shadow"
-              >
-                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-200 text-blue-700 mb-6">
-                  <f.icon className="w-10 h-10" />
-                </div>
-                <h3 className="text-2xl font-bold text-blue-800 mb-4">{f.title}</h3>
-                <p className="text-blue-600 leading-relaxed">{f.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {selectedWallpaper && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedWallpaper(null)}
-              className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-10 cursor-pointer"
+          {totalPages > 1 && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col sm:flex-row justify-center items-center gap-6"
             >
-              <motion.div
-                initial={{ scale: 0.8 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0.8 }}
-                onClick={(e) => e.stopPropagation()}
-                className="relative max-w-5xl w-full"
-              >
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-300 text-slate-700 hover:bg-slate-50 rounded-full"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        variant={currentPage === pageNum ? "default" : "ghost"}
+                        size="sm"
+                        className={`w-8 h-8 p-0 ${
+                          currentPage === pageNum
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
+                            : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
+                        }`}
+                      >
+                        {pageNum}
+                    </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-300 text-slate-700 hover:bg-slate-50 rounded-full"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+              
+              <span className="text-sm text-slate-600">
+                Page {currentPage} of {totalPages} • {filteredWallpapers.length} designs
+              </span>
+            </motion.div>
+          )}
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {selectedWallpaper && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedWallpaper(null)}
+            className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer"
+          >
+            <motion.div
+              initial={{ scale: 0.8, rotateX: -10 }}
+              animate={{ scale: 1, rotateX: 0 }}
+              exit={{ scale: 0.8, rotateX: -10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-6xl w-full bg-gradient-to-br from-white to-slate-50 rounded-3xl overflow-hidden border border-slate-200/50 shadow-2xl"
+            >
+              <div className="relative h-[70vh] overflow-hidden">
                 <img
                   src={selectedWallpaper.imageUrl}
                   alt={selectedWallpaper.name}
-                  className="w-full rounded-3xl shadow-4xl"
+                  className="w-full h-full object-contain"
                 />
-                <div className="absolute bottom-0 left-0 right-0 p-12 bg-gradient-to-t from-black/90 to-transparent text-white">
-                  <h2 className="text-6xl font-bold mb-4">{selectedWallpaper.name}</h2>
-                  <p className="text-2xl text-blue-200">{selectedWallpaper.productCode}</p>
-                </div>
-                <Button
-                  onClick={() => setSelectedWallpaper(null)}
-                  className="absolute top-8 right-8 bg-white/20 backdrop-blur hover:bg-white/30 rounded-full p-4"
-                >
-                  <X className="w-8 h-8 text-white" />
-                </Button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-white/80 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-transparent to-transparent" />
+              </div>
 
-        {[...Array(8)].map((_, i) => (
-          <Sparkles
-            key={i}
-            className="fixed text-blue-300/20 animate-pulse pointer-events-none"
-            style={{
-              top: `${10 + i * 12}%`,
-              left: `${8 + i * 11}%`,
-              fontSize: `${25 + i * 10}px`,
-              animationDelay: `${i * 1.5}s`,
-            }}
-          />
-        ))}
-      </div>
-    </>
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-white via-white/95 to-transparent">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+                  <div>
+                    <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+                      {selectedWallpaper.name}
+                    </h2>
+                    <div className="flex flex-wrap gap-4 items-center">
+                      <span className="text-xl text-blue-600 font-mono">
+                        {selectedWallpaper.productCode}
+                      </span>
+                      {selectedWallpaper.subCategory?.name && (
+                        <span className="px-4 py-2 bg-slate-100 text-slate-700 rounded-full">
+                          {selectedWallpaper.subCategory.name}
+                        </span>
+                      )}
+                    </div>
+                    {/* {selectedWallpaper.description && (
+                      <p className="mt-4 text-slate-600 max-w-2xl">
+                        {selectedWallpaper.description}
+                      </p>
+                    )} */}
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => setSelectedWallpaper(null)}
+                className="absolute top-6 right-6 bg-white/80 hover:bg-white backdrop-blur-sm rounded-full p-3 shadow-lg"
+                size="icon"
+              >
+                <X className="w-6 h-6 text-slate-700" />
+              </Button>
+
+              <Button
+                onClick={async () => {
+                  try {
+                    // Show loading state
+                    setIsGeneratingPDF(true);
+                    
+                    // Apply watermark
+                    const watermarkedImage = await applyEllendorfWatermark(selectedWallpaper.imageUrl);
+                    
+                    // Open in new tab
+                    const newWindow = window.open();
+                    newWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>${selectedWallpaper.name} - ELLENDORF Wall Coverings</title>
+                          <style>
+                            body { 
+                              margin: 0; 
+                              background: #f5f5f5; 
+                              display: flex; 
+                              justify-content: center; 
+                              align-items: center; 
+                              min-height: 100vh;
+                            }
+                            img { 
+                              max-width: 95vw; 
+                              max-height: 95vh; 
+                              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                              border-radius: 12px;
+                            }
+                            .watermark-note {
+                              position: fixed;
+                              bottom: 20px;
+                              left: 0;
+                              right: 0;
+                              text-align: center;
+                              color: #666;
+                              font-size: 14px;
+                              font-family: 'Times New Roman', serif;
+                              font-style: italic;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          <img src="${watermarkedImage}" alt="${selectedWallpaper.name}" />
+                          <div class="watermark-note">ELLENDORF Textile Wall Coverings - Premium Collection</div>
+                        </body>
+                      </html>
+                    `);
+                    newWindow.document.close();
+                    
+                    setIsGeneratingPDF(false);
+                  } catch (error) {
+                    console.error("Error opening watermarked image:", error);
+                    setIsGeneratingPDF(false);
+                    // Fallback to original image
+                    window.open(selectedWallpaper.imageUrl, '_blank');
+                  }
+                }}
+                className="absolute top-6 left-6 bg-white/80 hover:bg-white backdrop-blur-sm text-slate-700"
+                disabled={isGeneratingPDF}
+              >
+                {isGeneratingPDF ? (
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <Maximize2 className="w-5 h-5 mr-2" />
+                )}
+                {isGeneratingPDF ? "Adding Watermark..." : "Full View with Watermark"}
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <footer className="bg-gradient-to-b from-white to-slate-100 border-t border-slate-200/50">
+        <div className="container mx-auto px-6 py-12">
+          <div className="flex flex-col md:flex-row items-center justify-between">
+            <div className="mb-6 md:mb-0">
+              <div className="flex items-center space-x-3">
+                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
+                  Ellendorf
+                </div>
+                <div className="h-6 w-px bg-slate-300"></div>
+                <p className="text-sm text-slate-500">
+                  Luxury Textile Wall Coverings
+                </p>
+              </div>
+              <p className="text-sm text-slate-400 mt-4 max-w-md">
+                Premium collection of exquisite designs for modern living spaces.
+                Elevate your decor with our stunning wall coverings.
+              </p>
+            </div>
+            
+            <div className="flex flex-col items-center md:items-end space-y-2">
+              <p className="text-sm text-slate-500">
+                Showing {filteredWallpapers.length} of {wallpapers.length} designs
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setViewMode('grid')}
+                  className={`rounded-full ${viewMode === 'grid' ? 'bg-slate-100' : ''}`}
+                >
+                  <Grid className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setViewMode('list')}
+                  className={`rounded-full ${viewMode === 'list' ? 'bg-slate-100' : ''}`}
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-slate-400">
+                © {new Date().getFullYear()} Ellendorf. All rights reserved.
+              </p>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }

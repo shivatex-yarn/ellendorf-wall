@@ -18,31 +18,103 @@ import {
   Trash2,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
+import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 
-// Image cache for preloading
-const imageCache = new Map();
+// Enhanced Image Cache with LRU (Least Recently Used) strategy
+class ImageCache {
+  constructor(maxSize = 100) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+    this.accessOrder = [];
+  }
 
-// Preload image function
+  has(key) {
+    return this.cache.has(key);
+  }
+
+  get(key) {
+    if (this.cache.has(key)) {
+      // Move to end of access order (most recently used)
+      this.accessOrder = this.accessOrder.filter(k => k !== key);
+      this.accessOrder.push(key);
+      return this.cache.get(key);
+    }
+    return null;
+  }
+
+  set(key, value) {
+    if (this.cache.size >= this.maxSize) {
+      // Remove least recently used item
+      const lruKey = this.accessOrder.shift();
+      if (lruKey) {
+        this.cache.delete(lruKey);
+      }
+    }
+    
+    this.cache.set(key, value);
+    this.accessOrder.push(key);
+    
+    // Clean up old entries if they exceed max size
+    while (this.accessOrder.length > this.maxSize) {
+      const oldKey = this.accessOrder.shift();
+      if (oldKey) {
+        this.cache.delete(oldKey);
+      }
+    }
+  }
+
+  clear() {
+    this.cache.clear();
+    this.accessOrder = [];
+  }
+}
+
+const imageCache = new ImageCache(200); // Increased cache size
+
+// Fixed preload image function with better caching
 const preloadImage = (url) => {
   return new Promise((resolve, reject) => {
+    // Check cache first
     if (imageCache.has(url)) {
-      resolve(imageCache.get(url));
+      const cachedValue = imageCache.get(url);
+      if (cachedValue === null) {
+        // If cached value is null (failed), retry
+        loadImage();
+      } else if (cachedValue instanceof Promise) {
+        // If it's a pending promise, wait for it
+        cachedValue.then(resolve).catch(reject);
+      } else {
+        // If it's already loaded, resolve immediately
+        resolve(cachedValue);
+      }
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = url;
+    // Create a promise for this image
+    const imagePromise = new Promise((resolveLoad, rejectLoad) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      
+      img.onload = () => {
+        imageCache.set(url, url);
+        resolveLoad(url);
+      };
+      
+      img.onerror = (error) => {
+        console.warn(`Failed to load image: ${url}`, error);
+        imageCache.set(url, null); // Cache null to prevent repeated failed attempts
+        rejectLoad(new Error(`Failed to load image: ${url}`));
+      };
+      
+      img.src = url;
+    });
+
+    // Store the promise in cache
+    imageCache.set(url, imagePromise);
     
-    img.onload = () => {
-      imageCache.set(url, url);
-      resolve(url);
-    };
-    
-    img.onerror = () => {
-      reject(new Error(`Failed to load image: ${url}`));
-    };
+    // Wait for the image to load
+    imagePromise.then(resolve).catch(reject);
   });
 };
 
@@ -121,35 +193,75 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// WallpaperCard Component - For grid view
+// WallpaperCard Component - Fixed to prevent reloading
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [isImageError, setIsImageError] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true,
+    isError: false
+  });
 
-  // Preload image on component mount
+  // Fixed: Only load image when it changes, using cache properly
   useEffect(() => {
+    let isMounted = true;
+    
     const loadImage = async () => {
       if (!wp.imageUrl) {
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false,
+            isError: false
+          });
+        }
         return;
       }
 
+      // Check cache first
+      const cachedValue = imageCache.get(wp.imageUrl);
+      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
+        if (isMounted) {
+          setImageState({
+            src: cachedValue,
+            isLoading: false,
+            isError: false
+          });
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setImageState(prev => ({ ...prev, isLoading: true }));
+      }
+
       try {
-        setIsImageError(false);
-        const cachedUrl = await preloadImage(wp.imageUrl);
-        setImageSrc(cachedUrl);
+        const loadedUrl = await preloadImage(wp.imageUrl);
+        if (isMounted) {
+          setImageState({
+            src: loadedUrl,
+            isLoading: false,
+            isError: false
+          });
+        }
       } catch (error) {
-        console.error("Failed to load image:", error);
-        setImageSrc("/placeholder.jpg");
-        setIsImageError(true);
+        console.warn("Failed to load image:", wp.imageUrl, error);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false,
+            isError: true
+          });
+        }
       }
     };
 
     loadImage();
-  }, [wp.imageUrl]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [wp.imageUrl]); // Only depend on imageUrl
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -184,11 +296,13 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       onClick={handleClick}
     >
       {/* Loading/Error state */}
-      {!isImageLoaded && !isImageError && (
-        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 animate-pulse ${compact ? 'rounded-lg' : 'rounded-2xl'}`} />
+      {imageState.isLoading && (
+        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
+          <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+        </div>
       )}
       
-      {isImageError && (
+      {imageState.isError && (
         <div className={`absolute inset-0 bg-zinc-800 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
           <span className="text-zinc-500 text-xs">Failed to load</span>
         </div>
@@ -196,26 +310,24 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
       {/* Main image */}
       <motion.div layoutId={compact ? undefined : `image-${wp.id}-${id}`} className="w-full h-full">
-        {imageSrc && (
+        {imageState.src && !imageState.isLoading && !imageState.isError && (
           <img
-            src={imageSrc}
+            src={imageState.src}
             alt={wp.name}
             loading={index < 12 ? "eager" : "lazy"}
-            onLoad={() => setIsImageLoaded(true)}
-            onError={() => {
-              setIsImageError(true);
-              setIsImageLoaded(true);
-            }}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
-              isImageLoaded ? "opacity-100" : "opacity-0"
-            } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
+              compact ? 'rounded-lg' : 'rounded-2xl'
+            }`}
             crossOrigin="anonymous"
             decoding="async"
+            onError={(e) => {
+              e.target.src = "/placeholder.jpg";
+            }}
           />
         )}
       </motion.div>
 
-      {/* Overlay info - Only show on hover for compact mode */}
+      {/* Overlay info */}
       <div
         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-all duration-300 ${
           compact 
@@ -245,28 +357,65 @@ WallpaperCard.displayName = 'WallpaperCard';
 // Compact Wallpaper Card for Liked Modal
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true
+  });
 
   useEffect(() => {
+    let isMounted = true;
+    
     const loadImage = async () => {
       if (!wp.imageUrl) {
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
         return;
       }
 
+      // Check cache first
+      const cachedValue = imageCache.get(wp.imageUrl);
+      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
+        if (isMounted) {
+          setImageState({
+            src: cachedValue,
+            isLoading: false
+          });
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setImageState(prev => ({ ...prev, isLoading: true }));
+      }
+
       try {
-        const cachedUrl = await preloadImage(wp.imageUrl);
-        setImageSrc(cachedUrl);
+        const loadedUrl = await preloadImage(wp.imageUrl);
+        if (isMounted) {
+          setImageState({
+            src: loadedUrl,
+            isLoading: false
+          });
+        }
       } catch (error) {
-        console.error("Failed to load image:", error);
-        setImageSrc("/placeholder.jpg");
-        setIsImageLoaded(true);
+        console.warn("Failed to load image:", wp.imageUrl, error);
+        if (isMounted) {
+          setImageState({
+            src: "/placeholder.jpg",
+            isLoading: false
+          });
+        }
       }
     };
 
     loadImage();
+
+    return () => {
+      isMounted = false;
+    };
   }, [wp.imageUrl]);
 
   const handleClick = (e) => {
@@ -294,18 +443,20 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         className="relative aspect-[4/3] overflow-hidden"
         onClick={handleClick}
       >
-        {!isImageLoaded && (
-          <div className="absolute inset-0 bg-zinc-800 animate-pulse rounded-lg" />
+        {imageState.isLoading && (
+          <div className="absolute inset-0 bg-zinc-800 flex items-center justify-center">
+            <div className="w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
         )}
         
-        {imageSrc && (
+        {imageState.src && !imageState.isLoading && (
           <img
-            src={imageSrc}
+            src={imageState.src}
             alt={wp.name}
-            onLoad={() => setIsImageLoaded(true)}
-            className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-110 ${
-              isImageLoaded ? "opacity-100" : "opacity-0"
-            }`}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+            onError={(e) => {
+              e.target.src = "/placeholder.jpg";
+            }}
           />
         )}
 
@@ -352,7 +503,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
 
 CompactWallpaperCard.displayName = 'CompactWallpaperCard';
 
-// Category Section Component
+// FIXED Category Section Component - No image reloading on pagination
 const CategorySection = React.memo(({ 
   category, 
   wallpapers, 
@@ -377,42 +528,33 @@ const CategorySection = React.memo(({
   const totalPages = Math.ceil(categoryItems.length / itemsPerPage);
   const currentPage = pageByCategory[category] || 0;
   const start = currentPage * itemsPerPage;
-  const visibleItems = categoryItems.slice(start, start + itemsPerPage);
+  const visibleItems = useMemo(() => 
+    categoryItems.slice(start, start + itemsPerPage),
+    [categoryItems, start]
+  );
 
-  // Preload images for current and next page
+  // FIXED: Preload images for ALL pages when component mounts
   useEffect(() => {
-    const preloadAllImages = async () => {
-      const imagesToPreload = [];
-      
-      // Current page images
-      visibleItems.forEach(wp => {
-        if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
+    if (!categoryItems.length) return;
+    
+    const preloadAllCategoryImages = async () => {
+      // Preload all images in this category (not just visible ones)
+      const preloadPromises = categoryItems.map(wp => {
+        if (wp.imageUrl) {
+          return preloadImage(wp.imageUrl).catch(() => {
+            // Silently handle individual image failures
+            return null;
+          });
+        }
+        return Promise.resolve(null);
       });
       
-      // Next page images (if exists)
-      if (currentPage < totalPages - 1) {
-        const nextStart = (currentPage + 1) * itemsPerPage;
-        const nextPageItems = categoryItems.slice(nextStart, nextStart + itemsPerPage);
-        nextPageItems.forEach(wp => {
-          if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
-        });
-      }
-      
-      // Previous page images (if exists)
-      if (currentPage > 0) {
-        const prevStart = (currentPage - 1) * itemsPerPage;
-        const prevPageItems = categoryItems.slice(prevStart, prevStart + itemsPerPage);
-        prevPageItems.forEach(wp => {
-          if (wp.imageUrl) imagesToPreload.push(wp.imageUrl);
-        });
-      }
-      
-      // Preload all images
-      await Promise.allSettled(imagesToPreload.map(url => preloadImage(url)));
+      // Don't await - let it run in background
+      Promise.allSettled(preloadPromises);
     };
     
-    preloadAllImages();
-  }, [categoryItems, currentPage, visibleItems, totalPages, itemsPerPage]);
+    preloadAllCategoryImages();
+  }, [categoryItems]); // Only run when categoryItems changes
 
   // Check if this category contains the highlighted product
   const containsHighlightedProduct = useMemo(() => {
@@ -431,7 +573,7 @@ const CategorySection = React.memo(({
     }
   }, [containsHighlightedProduct, currentPage]);
 
-  // Handle page change
+  // Handle page change - FIXED to not cause reloads
   const handlePageChange = useCallback((direction) => {
     let newPage = currentPage;
     if (direction === 'prev' && currentPage > 0) {
@@ -442,7 +584,7 @@ const CategorySection = React.memo(({
       return;
     }
     
-    // Update page state
+    // Update page state - this will trigger visibleItems update
     setPageByCategory(prev => ({ ...prev, [category]: newPage }));
   }, [category, currentPage, totalPages, setPageByCategory]);
 
@@ -474,14 +616,7 @@ const CategorySection = React.memo(({
           </div>
         )}
       </div>
-      <motion.div 
-        key={currentPage}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3"
-      >
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {visibleItems.map((wp, idx) => (
           <WallpaperCard 
             key={`${wp.id}-${currentPage}-${idx}`} 
@@ -494,7 +629,7 @@ const CategorySection = React.memo(({
             id={id}
           />
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 });
@@ -503,25 +638,45 @@ CategorySection.displayName = 'CategorySection';
 
 // Lightbox Component for viewing full-size wallpaper
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({
+    src: "",
+    isLoading: true
+  });
 
   // Preload high-quality image for lightbox
   useEffect(() => {
     if (wallpaper?.imageUrl && isOpen) {
+      let isMounted = true;
+      
       const loadImage = async () => {
+        if (isMounted) {
+          setImageState(prev => ({ ...prev, isLoading: true }));
+        }
+
         try {
-          // Don't set isImageLoaded to false here - let the natural loading state handle it
           const cachedUrl = await preloadImage(wallpaper.imageUrl);
-          setImageSrc(cachedUrl);
-          // Let the onLoad handler set isImageLoaded to true
+          if (isMounted) {
+            setImageState({
+              src: cachedUrl,
+              isLoading: false
+            });
+          }
         } catch (error) {
           console.error("Failed to load lightbox image:", error);
-          setImageSrc(wallpaper.imageUrl);
-          // Let the onError handler handle the loading state
+          if (isMounted) {
+            setImageState({
+              src: wallpaper.imageUrl,
+              isLoading: false
+            });
+          }
         }
       };
+      
       loadImage();
+      
+      return () => {
+        isMounted = false;
+      };
     }
   }, [wallpaper?.imageUrl, isOpen]);
 
@@ -611,27 +766,27 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                   layoutId={`image-${wallpaper.id}-${id}`}
                   className="w-full h-full flex items-center justify-center"
                 >
-                  {!isImageLoaded && (
+                  {imageState.isLoading && (
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-lg"
-                    />
+                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center rounded-lg"
+                    >
+                      <div className="w-12 h-12 border-4 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                    </motion.div>
                   )}
                   
-                  {imageSrc && (
+                  {imageState.src && !imageState.isLoading && (
                     <motion.img
                       initial={{ opacity: 0 }}
-                      animate={{ opacity: isImageLoaded ? 1 : 0 }}
-                      transition={{ duration: 0.3, delay: isImageLoaded ? 0 : 0.1 }}
-                      src={imageSrc}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                      src={imageState.src}
                       alt={wallpaper.name}
                       loading="eager"
                       className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                      onLoad={() => setIsImageLoaded(true)}
-                      onError={() => {
-                        setImageSrc("https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=1200&auto=format&fit=crop");
-                        setIsImageLoaded(true);
+                      onError={(e) => {
+                        e.target.src = "/placeholder.jpg";
                       }}
                     />
                   )}
@@ -686,28 +841,51 @@ export default function EllendorfWallpaperApp() {
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [highlightedProductCode, setHighlightedProductCode] = useState("");
-  const ref = useRef(null);
+  const [error, setError] = useState(null);
   const id = useId();
 
+  // Load liked wallpapers from sessionStorage
   useEffect(() => {
     const stored = sessionStorage.getItem("likedWallpapers");
-    if (stored) setLikedWallpapers(JSON.parse(stored));
+    if (stored) {
+      try {
+        setLikedWallpapers(JSON.parse(stored));
+      } catch (err) {
+        console.error("Failed to parse liked wallpapers:", err);
+        setLikedWallpapers([]);
+      }
+    }
   }, []);
 
+  // Save liked wallpapers to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem("likedWallpapers", JSON.stringify(likedWallpapers));
+    try {
+      sessionStorage.setItem("likedWallpapers", JSON.stringify(likedWallpapers));
+    } catch (err) {
+      console.error("Failed to save liked wallpapers:", err);
+    }
   }, [likedWallpapers]);
 
+  // Handle escape key and body overflow
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (e.key === "Escape") setSelectedWallpaper(null);
+      if (e.key === "Escape") {
+        setSelectedWallpaper(null);
+        setShowLikedModal(false);
+      }
     };
-    if (selectedWallpaper) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "auto";
+    
+    if (selectedWallpaper || showLikedModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "auto";
+    }
+    
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedWallpaper]);
+  }, [selectedWallpaper, showLikedModal]);
 
+  // Toggle like function
   const toggleLike = useCallback((wp) => {
     setLikedWallpapers((prev) => {
       const exists = prev.some((w) => w.id === wp.id);
@@ -733,7 +911,11 @@ export default function EllendorfWallpaperApp() {
 
   const clearAllLiked = () => {
     setLikedWallpapers([]);
-    sessionStorage.removeItem("likedWallpapers");
+    try {
+      sessionStorage.removeItem("likedWallpapers");
+    } catch (err) {
+      console.error("Failed to clear liked wallpapers:", err);
+    }
   };
 
   // Remove wallpaper from liked list
@@ -741,30 +923,49 @@ export default function EllendorfWallpaperApp() {
     setLikedWallpapers(prev => prev.filter(w => w.id !== wp.id));
   }, []);
 
+  // Fetch wallpapers data using axios
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await fetch("http://localhost:4500/api/wallpaper");
-        const wpData = await res.json();
+        setError(null);
+        
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
+        
+        const response = await axios.get(`${baseUrl}/api/wallpaper`, {
+          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        const wpData = response.data;
         const activeWallpapers = wpData
           .filter((w) => w.status?.toLowerCase() === "active")
           .map((w) => ({
             ...w,
             imageUrl: w.imageUrl || "/placeholder.jpg",
           }));
+        
         activeWallpapers.sort((a, b) => {
           const catA = a.subCategory?.name || "Other";
           const catB = b.subCategory?.name || "Other";
           return catA.localeCompare(catB);
         });
+        
         setWallpapers(activeWallpapers);
         
-        // Preload first batch of images
+        // Preload first batch of images in background
         const firstBatch = activeWallpapers.slice(0, 24);
-        await Promise.allSettled(firstBatch.map(wp => preloadImage(wp.imageUrl)));
+        setTimeout(() => {
+          Promise.allSettled(
+            firstBatch.map(wp => preloadImage(wp.imageUrl).catch(() => null))
+          );
+        }, 500);
       } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch wallpapers:", err);
+        setError("Failed to load wallpaper data. Please check your connection.");
+        setWallpapers([]);
       } finally {
         setLoading(false);
       }
@@ -787,362 +988,427 @@ export default function EllendorfWallpaperApp() {
     return [...new Set(wallpapers.map((w) => w.subCategory?.name).filter(Boolean))];
   }, [wallpapers]);
 
-  const downloadAllAsPDF = async (customerName) => {
-    if (!customerName || !customerName.trim()) {
-      alert("Please enter a customer name");
-      return;
-    }
+const downloadAllAsPDF = async (customerName) => {
+  if (!customerName || !customerName.trim()) {
+  alert("Please enter a customer name");
+  return;
+}
 
-    setIsGeneratingPDF(true);
-    
-    const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 40;
-    const contentWidth = pageWidth - 2 * margin;
-    const contentHeight = pageHeight - 2 * margin;
-    
-    // Get current timestamp
-    const currentDate = new Date();
-    const timestamp = currentDate.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+setIsGeneratingPDF(true);
+
+try {
+  const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  
+  // Get current timestamp
+  const currentDate = new Date();
+  const timestamp = currentDate.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const formattedDate = currentDate.toISOString().split('T')[0];
+
+  // STANDARDIZED CONSTANTS FOR ALL IMAGES
+  const STANDARD_FONT_SIZES = {
+    mainBrand: 85,        // "ELLENDORF – Textile Wall Coverings"
+    subBrand: 38,         // "Textile Wall Coverings"
+    premiumCollection: 30, // "Premium Collection"
+    footer: 22            // Footer text
+  };
+
+  const STANDARD_BOX_DIMENSIONS = {
+    width: 0.65,    // 65% of image width
+    height: 0.18    // 18% of image height
+  };
+
+  const STANDARD_FOOTER = {
+    fontSize: 22,
+    height: 40,
+    marginBottom: 35
+  };
+
+  // Function to add luxury watermark to image with STANDARDIZED sizing
+  const addLuxuryWatermarkToImage = (imageUrl) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = imageUrl;
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size to image size
+        canvas.width = img.width;
+        canvas.height = img.height;
+        
+        // Draw original image
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+        
+        // Add luxury watermark - Center position
+        ctx.save();
+        
+        // Calculate center position
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        
+        // Calculate box dimensions based on STANDARD percentages
+        const boxWidth = canvas.width * STANDARD_BOX_DIMENSIONS.width;
+        const boxHeight = canvas.height * STANDARD_BOX_DIMENSIONS.height;
+        
+        // Watermark background (consistent opacity)
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          centerX - boxWidth/2, 
+          centerY - boxHeight/2, 
+          boxWidth, 
+          boxHeight
+        );
+
+        // Main luxury branding (single line) - STANDARD FONT SIZE
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+        ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        // Subtle shadow for depth
+        ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 3;
+
+        // Brand text
+        ctx.fillText(
+          "ELLENDORF – Textile Wall Coverings",
+          centerX,
+          centerY - (boxHeight * 0.15) // Consistent positioning
+        );
+
+        // Reset shadow before drawing lines
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        // Decorative luxury divider - STANDARD POSITIONING
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(centerX - boxWidth * 0.3, centerY + (boxHeight * 0.1));
+        ctx.lineTo(centerX + boxWidth * 0.3, centerY + (boxHeight * 0.1));
+        ctx.stroke();
+
+        // Sub branding - STANDARD FONT SIZE
+        ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
+        ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.05));
+        
+        // Premium Collection text - STANDARD FONT SIZE
+        ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
+        ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.2));
+        
+        ctx.restore();
+        
+        // STANDARD FOOTER at bottom of image
+        ctx.save();
+        const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
+        const footerWidth = canvas.width * 0.8; // 80% of image width
+        
+        // Footer background with consistent styling
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          centerX - footerWidth/2,
+          footerY - (STANDARD_FOOTER.height/2),
+          footerWidth,
+          STANDARD_FOOTER.height
+        );
+        
+        // Footer text - STANDARD FONT SIZE
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          "ELLENDORF Textile Wall Coverings - Premium Collection",
+          centerX,
+          footerY
+        );
+        ctx.restore();
+        
+        // Convert canvas to data URL with good quality
+        const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
+        resolve(watermarkedImage);
+      };
+      
+      img.onerror = () => {
+        reject(new Error("Failed to load image for watermarking"));
+      };
     });
-    const formattedDate = currentDate.toISOString().split('T')[0];
-    const timeString = currentDate.getTime();
+  };
 
-    // Function to add luxury watermark to image
-    const addLuxuryWatermarkToImage = (imageUrl) => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = imageUrl;
-        
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          // Set canvas size to image size
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          // Draw original image
-          ctx.drawImage(img, 0, 0, img.width, img.height);
-          
-          // Add luxury watermark - Center position
-          ctx.save();
-          
-          // Calculate center position
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
-          
-          // Watermark background (subtle white overlay)
-          ctx.globalAlpha = 0.2;
-          ctx.fillStyle = "white";
-          ctx.fillRect(centerX - 200, centerY - 80, 400, 160);
-          
-          // Main watermark text (Elegant Luxury Font)
-          ctx.globalAlpha = 0.7;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-          ctx.font = "bold 48px 'Times New Roman', serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          
-          // Ellendorf text
-          ctx.fillText("ELLENDORF", centerX, centerY - 20);
-          
-          // Divider line
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(centerX - 100, centerY);
-          ctx.lineTo(centerX + 100, centerY);
-          ctx.stroke();
-          
-          // Powered by text
-          ctx.font = "italic 20px 'Times New Roman', serif";
-          ctx.fillText("Powered by Reimagine AI", centerX, centerY + 25);
-          
-          // Add subtle pattern overlay
-          ctx.globalAlpha = 0.03;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
-          for (let i = 0; i < 5; i++) {
-            ctx.beginPath();
-            ctx.arc(centerX + (i - 2) * 80, centerY, 40, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          
-          ctx.restore();
-          
-          // Add corner accent
-          ctx.save();
-          ctx.globalAlpha = 0.1;
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
-          ctx.lineWidth = 2;
-          
-          // Top-left corner
-          ctx.beginPath();
-          ctx.moveTo(50, 50);
-          ctx.lineTo(100, 50);
-          ctx.lineTo(50, 100);
-          ctx.stroke();
-          
-          // Top-right corner
-          ctx.beginPath();
-          ctx.moveTo(canvas.width - 50, 50);
-          ctx.lineTo(canvas.width - 100, 50);
-          ctx.lineTo(canvas.width - 50, 100);
-          ctx.stroke();
-          
-          // Bottom-left corner
-          ctx.beginPath();
-          ctx.moveTo(50, canvas.height - 50);
-          ctx.lineTo(50, canvas.height - 100);
-          ctx.lineTo(100, canvas.height - 50);
-          ctx.stroke();
-          
-          // Bottom-right corner
-          ctx.beginPath();
-          ctx.moveTo(canvas.width - 50, canvas.height - 50);
-          ctx.lineTo(canvas.width - 50, canvas.height - 100);
-          ctx.lineTo(canvas.width - 100, canvas.height - 50);
-          ctx.stroke();
-          
-          ctx.restore();
-          
-          // Convert canvas to data URL with good quality
-          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.8);
-          resolve(watermarkedImage);
-        };
-        
-        img.onerror = () => {
-          reject(new Error("Failed to load image for watermarking"));
-        };
-      });
-    };
+  // Add cover page with white background
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Add cover page with white background
+  // Add decorative border
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(2);
+  doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
+
+  // Add title with luxury styling
+  doc.setTextColor(40, 40, 40);
+  doc.setFontSize(48);
+  doc.setFont("times", "bolditalic");
+  doc.text("ELLENDORF", pageWidth / 2, 120, { align: "center" });
+
+  // Add decorative underline
+  doc.setDrawColor(200, 180, 150);
+  doc.setLineWidth(4);
+  doc.line(pageWidth / 2 - 140, 140, pageWidth / 2 + 140, 140);
+
+  doc.setFontSize(32);
+  doc.setFont("times", "italic");
+  doc.text("Premium Wall Coverings", pageWidth / 2, 180, { align: "center" });
+
+  doc.setFontSize(24);
+  doc.setFont("helvetica", "normal");
+  doc.text("Powered by Reimagine AI", pageWidth / 2, 220, { align: "center" });
+
+  // Add decorative element
+  doc.setFillColor(245, 245, 245);
+  doc.roundedRect(pageWidth / 2 - 200, 250, 400, 90, 10, 10, 'F');
+
+  // Add customer info inside decorative box
+  doc.setTextColor(60, 60, 60);
+  doc.setFontSize(26);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Client: ${customerName}`, pageWidth / 2, 285, { align: "center" });
+
+  doc.setFontSize(20);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Generated: ${timestamp}`, pageWidth / 2, 320, { align: "center" });
+
+  // Add wallpaper count
+  doc.setTextColor(100, 100, 100);
+  doc.setFontSize(18);
+  doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, 360, { align: "center" });
+
+  // Add decorative divider
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(1);
+  doc.setLineDash([5, 5]);
+  doc.line(50, 380, pageWidth - 50, 380);
+  doc.setLineDash([]);
+
+  // Add thank you note with luxury styling
+  doc.setTextColor(80, 80, 80);
+  doc.setFontSize(22);
+  doc.setFont("times", "italic");
+  doc.text("Thank you for choosing", pageWidth / 2, 420, { align: "center" });
+
+  doc.setFontSize(28);
+  doc.setFont("times", "bold");
+  doc.text("Ellendorf Luxury Collection", pageWidth / 2, 460, { align: "center" });
+
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "normal");
+  doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, 490, { align: "center" });
+
+  // Add decorative corner accents on cover page
+  doc.setDrawColor(200, 180, 150);
+  doc.setLineWidth(2);
+
+  // Top-left corner
+  doc.line(40, 40, 100, 40);
+  doc.line(40, 40, 40, 100);
+
+  // Top-right corner
+  doc.line(pageWidth - 40, 40, pageWidth - 100, 40);
+  doc.line(pageWidth - 40, 40, pageWidth - 40, 100);
+
+  // Bottom-left corner
+  doc.line(40, pageHeight - 40, 100, pageHeight - 40);
+  doc.line(40, pageHeight - 40, 40, pageHeight - 100);
+
+  // Bottom-right corner
+  doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 80, pageHeight - 40);
+  doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 40, pageHeight - 100);
+
+  // Process each wallpaper with CONSISTENT sizing
+  for (let i = 0; i < likedWallpapers.length; i++) {
+    const wp = likedWallpapers[i];
+    doc.addPage();
+    
+    // Set white background for content pages
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, pageWidth, pageHeight, "F");
     
-    // Add decorative border
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(2);
-    doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
-    
-    // Add title with luxury styling
-    doc.setTextColor(40, 40, 40);
-    doc.setFontSize(42);
-    doc.setFont("times", "bolditalic");
-    doc.text("ELLENDORF", pageWidth / 2, 120, { align: "center" });
-    
-    // Add decorative underline
-    doc.setDrawColor(200, 180, 150);
-    doc.setLineWidth(3);
-    doc.line(pageWidth / 2 - 120, 135, pageWidth / 2 + 120, 135);
-    
-    doc.setFontSize(28);
-    doc.setFont("times", "italic");
-    doc.text("Wallpaper Collections", pageWidth / 2, 165, { align: "center" });
-    
-    doc.setFontSize(22);
-    doc.setFont("helvetica", "normal");
-    doc.text("Powered by Reimagine AI", pageWidth / 2, 200, { align: "center" });
-    
-    // Add decorative element
-    doc.setFillColor(240, 240, 240);
-    doc.roundedRect(pageWidth / 2 - 180, 230, 360, 80, 10, 10, 'F');
-    
-    // Add customer info inside decorative box
-    doc.setTextColor(60, 60, 60);
-    doc.setFontSize(24);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Customer: ${customerName}`, pageWidth / 2, 260, { align: "center" });
-    
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Generated: ${timestamp}`, pageWidth / 2, 290, { align: "center" });
-    
-    // Add wallpaper count
-    doc.setTextColor(100, 100, 100);
-    doc.setFontSize(16);
-    doc.text(`Total Selected Wallpapers: ${likedWallpapers.length}`, pageWidth / 2, 330, { align: "center" });
-    
-    // Add decorative divider
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(1);
-    doc.setLineDash([5, 5]);
-    doc.line(50, 350, pageWidth - 50, 350);
-    doc.setLineDash([]);
-    
-    // Add thank you note with luxury styling
-    doc.setTextColor(80, 80, 80);
-    doc.setFontSize(20);
-    doc.setFont("times", "italic");
-    doc.text("Thank you for choosing", pageWidth / 2, 380, { align: "center" });
-    
-    doc.setFontSize(24);
-    doc.setFont("times", "bold");
-    doc.text("Ellendorf Luxury Wallpapers", pageWidth / 2, 410, { align: "center" });
-    
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "normal");
-    doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, 440, { align: "center" });
-    
-    // Add decorative corner accents on cover page
-    doc.setDrawColor(200, 180, 150);
-    doc.setLineWidth(1);
-    
-    // Top-left corner
-    doc.line(40, 40, 80, 40);
-    doc.line(40, 40, 40, 80);
-    
-    // Top-right corner
-    doc.line(pageWidth - 40, 40, pageWidth - 80, 40);
-    doc.line(pageWidth - 40, 40, pageWidth - 40, 80);
-    
-    // Bottom-left corner
-    doc.line(40, pageHeight - 40, 80, pageHeight - 40);
-    doc.line(40, pageHeight - 40, 40, pageHeight - 80);
-    
-    // Bottom-right corner
-    doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 80, pageHeight - 40);
-    doc.line(pageWidth - 40, pageHeight - 40, pageWidth - 40, pageHeight - 80);
+    // Add thinner decorative border to content pages
+    doc.setDrawColor(240, 240, 240);
+    doc.setLineWidth(0.5);
+    doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
 
-    // Process each wallpaper
-    for (let i = 0; i < likedWallpapers.length; i++) {
-      const wp = likedWallpapers[i];
-      doc.addPage();
+    try {
+      // Add luxury watermark directly to the image (now with STANDARD sizes)
+      const watermarkedImage = await addLuxuryWatermarkToImage(wp.imageUrl);
+      const img = new Image();
+      img.src = watermarkedImage;
       
-      // Set white background for content pages
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          const imgRatio = img.width / img.height;
+          
+          // STANDARD image area - consistent for all images
+          const MAX_IMAGE_WIDTH = pageWidth - 60;  // 30px margins on each side
+          const MAX_IMAGE_HEIGHT = pageHeight - 140; // Space for info box and footer
+          
+          let drawWidth, drawHeight;
+          
+          if (imgRatio > 1) {
+            // Landscape image
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          } else {
+            // Portrait image
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          
+          // Ensure we don't exceed max height for landscape or max width for portrait
+          if (drawHeight > MAX_IMAGE_HEIGHT) {
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          if (drawWidth > MAX_IMAGE_WIDTH) {
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          }
+          
+          // Center the image with PROPER SPACING
+          const x = (pageWidth - drawWidth) / 2;
+          const y = 30; // Fixed top margin
+          
+          // Add the watermarked image
+          doc.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
+          
+          // Add compact information box below image with PROPER SPACING
+          const infoBoxY = y + drawHeight + 15; // 15px gap between image and info box
+          
+          doc.setFillColor(250, 250, 250);
+          doc.roundedRect(40, infoBoxY, pageWidth - 80, 50, 5, 5, 'F');
+          
+          doc.setDrawColor(230, 230, 230);
+          doc.setLineWidth(1);
+          doc.roundedRect(40, infoBoxY, pageWidth - 80, 50, 5, 5);
+          
+          // Add wallpaper details
+          doc.setTextColor(40, 40, 40);
+          doc.setFontSize(20);
+          doc.setFont("helvetica", "bold");
+          
+          // Truncate long names to fit
+          const displayName = wp.name && wp.name.length > 50 
+            ? wp.name.substring(0, 47) + "..." 
+            : wp.name || "Untitled";
+          
+          doc.text(displayName, pageWidth / 2, infoBoxY + 20, { align: "center" });
+          
+          doc.setFontSize(16);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, infoBoxY + 40, { align: "center" });
+          
+          // STANDARD FOOTER - same positioning and styling for all pages
+          const footerY = pageHeight - 50; // Fixed position
+          
+          doc.setFillColor(245, 245, 245);
+          doc.rect(0, footerY, pageWidth, 50, 'F');
+          
+          // Add decorative top border to footer
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(1);
+          doc.line(0, footerY, pageWidth, footerY);
+          
+          // Add customer name at bottom left
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(12);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Client: ${customerName}`, 40, footerY + 20);
+          
+          // Add timestamp at bottom right
+          doc.text(timestamp, pageWidth - 40, footerY + 20, { align: "right" });
+          
+          // Add page number in center
+          doc.setFontSize(12);
+          doc.setFont("helvetica", "italic");
+          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY + 35, { align: "center" });
+          
+          // Add brand footer with STANDARD styling
+          doc.setTextColor(150, 150, 150);
+          doc.setFontSize(10);
+          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 45, { align: "center" });
+          
+          resolve();
+        };
+        img.onerror = reject;
+      });
+    } catch (err) {
+      console.error("Error loading or watermarking image:", err);
       
-      // Add decorative border to content pages
-      doc.setDrawColor(240, 240, 240);
+      // Fallback with STANDARD layout
+      const fallbackY = pageHeight / 2 - 30;
+      
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(24);
+      doc.setFont("helvetica", "italic");
+      doc.text("Image unavailable", pageWidth / 2, fallbackY, { align: "center" });
+      
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "normal");
+      doc.text(wp.name || "Untitled", pageWidth / 2, fallbackY + 40, { align: "center" });
+      doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, fallbackY + 70, { align: "center" });
+      
+      // Add STANDARD FOOTER (same as above)
+      const footerY = pageHeight - 50;
+      
+      doc.setFillColor(245, 245, 245);
+      doc.rect(0, footerY, pageWidth, 50, 'F');
+      doc.setDrawColor(220, 220, 220);
       doc.setLineWidth(1);
-      doc.rect(15, 15, pageWidth - 30, pageHeight - 30);
-
-      try {
-        // Add luxury watermark directly to the image
-        const watermarkedImage = await addLuxuryWatermarkToImage(wp.imageUrl);
-        const img = new Image();
-        img.src = watermarkedImage;
-        
-        await new Promise((resolve, reject) => {
-          img.onload = () => {
-            const imgRatio = img.width / img.height;
-            const pageRatio = contentWidth / contentHeight;
-            let drawWidth, drawHeight;
-            
-            if (imgRatio > pageRatio) {
-              drawWidth = contentWidth;
-              drawHeight = contentWidth / imgRatio;
-            } else {
-              drawHeight = contentHeight;
-              drawWidth = contentHeight * imgRatio;
-            }
-            
-            const x = margin + (contentWidth - drawWidth) / 2;
-            const y = margin + (contentHeight - drawHeight) / 2;
-            
-            // Add the watermarked image (watermark is already embedded in the image)
-            doc.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
-            
-            // Add decorative information box below image
-            doc.setFillColor(250, 250, 250);
-            doc.roundedRect(margin, y + drawHeight + 15, contentWidth, 80, 5, 5, 'F');
-            
-            doc.setDrawColor(230, 230, 230);
-            doc.setLineWidth(1);
-            doc.roundedRect(margin, y + drawHeight + 15, contentWidth, 80, 5, 5);
-            
-            // Add wallpaper details in the info box
-            doc.setTextColor(40, 40, 40);
-            doc.setFontSize(18);
-            doc.setFont("helvetica", "bold");
-            doc.text(wp.name || "Untitled", pageWidth / 2, y + drawHeight + 45, { align: "center" });
-            
-            doc.setFontSize(14);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, y + drawHeight + 70, { align: "center" });
-            
-            // Add page footer with luxury styling
-            doc.setFillColor(245, 245, 245);
-            doc.rect(0, pageHeight - 50, pageWidth, 50, 'F');
-            
-            // Add decorative top border to footer
-            doc.setDrawColor(220, 220, 220);
-            doc.setLineWidth(1);
-            doc.line(0, pageHeight - 50, pageWidth, pageHeight - 50);
-            
-            // Add customer name at bottom left
-            doc.setTextColor(100, 100, 100);
-            doc.setFontSize(11);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Customer: ${customerName}`, margin, pageHeight - 30);
-            
-            // Add timestamp at bottom right
-            doc.text(timestamp, pageWidth - margin, pageHeight - 30, { align: "right" });
-            
-            // Add page number in center
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "italic");
-            doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
-            
-            // Add brand footer
-            doc.setTextColor(150, 150, 150);
-            doc.setFontSize(9);
-            doc.text("Ellendorf Luxury Wallpaper Collection", pageWidth / 2, pageHeight - 5, { align: "center" });
-            
-            resolve();
-          };
-          img.onerror = reject;
-        });
-      } catch (err) {
-        console.error("Error loading or watermarking image:", err);
-        
-        // Fallback: Show error message with styling
-        doc.setTextColor(150, 150, 150);
-        doc.setFontSize(20);
-        doc.setFont("helvetica", "italic");
-        doc.text("Image unavailable", pageWidth / 2, pageHeight / 2 - 20, { align: "center" });
-        
-        doc.setFontSize(16);
-        doc.setFont("helvetica", "normal");
-        doc.text(wp.name || "Untitled", pageWidth / 2, pageHeight / 2 + 10, { align: "center" });
-        doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, pageHeight / 2 + 35, { align: "center" });
-        
-        // Still add footer for consistency
-        doc.setFillColor(245, 245, 245);
-        doc.rect(0, pageHeight - 50, pageWidth, 50, 'F');
-        doc.setDrawColor(220, 220, 220);
-        doc.setLineWidth(1);
-        doc.line(0, pageHeight - 50, pageWidth, pageHeight - 50);
-        
-        doc.setTextColor(100, 100, 100);
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Customer: ${customerName}`, margin, pageHeight - 30);
-        doc.text(timestamp, pageWidth - margin, pageHeight - 30, { align: "right" });
-        
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "italic");
-        doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
-        
-        doc.setTextColor(150, 150, 150);
-        doc.setFontSize(9);
-        doc.text("Ellendorf Luxury Wallpaper Collection", pageWidth / 2, pageHeight - 5, { align: "center" });
-      }
+      doc.line(0, footerY, pageWidth, footerY);
+      
+      doc.setTextColor(100, 100, 100);
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Client: ${customerName}`, 40, footerY + 20);
+      doc.text(timestamp, pageWidth - 40, footerY + 20, { align: "right" });
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "italic");
+      doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY + 35, { align: "center" });
+      
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(10);
+      doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 45, { align: "center" });
     }
-    
-    setIsGeneratingPDF(false);
-    doc.save(`Ellendorf_Luxury_Wallpaper_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`);
-  };
+  }
+
+  // Save the PDF with luxury name
+  const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
+  doc.save(fileName);
+  
+} catch (error) {
+  console.error("PDF generation error:", error);
+  alert("Failed to generate luxury brochure. Please try again.");
+} finally {
+  setIsGeneratingPDF(false);
+}
+};
 
   const handleDownloadPDF = () => {
     setShowCustomerDialog(true);
@@ -1157,7 +1423,19 @@ export default function EllendorfWallpaperApp() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-black">
         <div className="w-16 h-16 border-4 border-zinc-700 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-        <div className="text-2xl text-zinc-400">Loading wallpapers...</div>
+        <div className="text-2xl text-zinc-400">Loading wall Coverings...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-black">
+        <div className="text-2xl text-red-400 mb-4">Error</div>
+        <div className="text-lg text-zinc-400 mb-6">{error}</div>
+        <Button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-700">
+          Retry
+        </Button>
       </div>
     );
   }
@@ -1186,14 +1464,14 @@ export default function EllendorfWallpaperApp() {
           <Button variant="ghost" onClick={() => router.push("/wallpaper")} className="mr-4">
             <ArrowLeft className="mr-2 w-5 h-5 md:w-6 md:h-6" /> Back
           </Button>
-          <h1 className="text-lg font-semibold">Ellendorf Wallpaper</h1>
+          <h1 className="text-lg font-semibold">Ellendorf Textile Wall Coverings</h1>
         </div>
         
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
           <div className="relative w-full md:w-80">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-zinc-400" />
             <Input
-              placeholder="Search by name, collection, or product code..."
+              placeholder="Search by Category or product code..."
               value={searchTerm}
               onChange={handleSearchChange}
               className="pl-10 md:pl-12 w-full h-9 md:h-10 bg-zinc-900/80 border-zinc-700 rounded-xl text-sm md:text-base"
@@ -1245,11 +1523,11 @@ export default function EllendorfWallpaperApp() {
                 Ellendorf
               </span>
               <br />
-              <span className="text-xl md:text-3xl lg:text-4xl font-light text-zinc-300">Wallpaper Collections</span>
+              <span className="text-xl md:text-3xl lg:text-4xl font-light text-zinc-300"> Textile Wall Coverings</span>
             </h1>
             
             <p className="text-sm md:text-lg lg:text-xl text-zinc-400 text-center max-w-3xl mx-auto mb-6 md:mb-8 leading-relaxed">
-              Experience unparalleled luxury with our curated selection of premium wallpapers.
+              Experience unparalleled luxury with our curated selection of premium  Textile Wall Coverings.
               Each design tells a story of craftsmanship and elegance.
             </p>
           </div>
@@ -1259,7 +1537,7 @@ export default function EllendorfWallpaperApp() {
       <main id="collections" className="py-4 md:py-8 px-4 md:px-8 bg-black">
         <div className="container mx-auto">
           <h2 className="text-xl md:text-2xl font-light text-center text-zinc-300 mb-6 md:mb-8">
-            {searchTerm ? `Results for "${searchTerm}"` : "All Wallpaper Collections"}
+            {searchTerm ? `Results for "${searchTerm}"` : "All Textile Wall Coverings"}
             {highlightedProductCode && (
               <span className="block text-sm md:text-base text-blue-400 mt-2">
                 Highlighting product code: {highlightedProductCode}
@@ -1267,7 +1545,12 @@ export default function EllendorfWallpaperApp() {
             )}
           </h2>
           
-          {searchTerm ? (
+          {wallpapers.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-xl text-zinc-400 mb-4">No wall coverings found</div>
+              <p className="text-zinc-500">Please check your data source or try again later.</p>
+            </div>
+          ) : searchTerm ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
               {filteredWallpapers.slice(0, 48).map((wp, index) => (
                 <WallpaperCard 
@@ -1311,23 +1594,23 @@ export default function EllendorfWallpaperApp() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/90 z-50"
+              className="fixed inset-0 bg-black z-50"
               onClick={() => setShowLikedModal(false)}
             />
             
             <div className="fixed inset-0 z-50 flex flex-col">
-              <div className="sticky top-0 bg-zinc-900/95 backdrop-blur-xl z-10 border-b border-zinc-800 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="sticky top-0 bg-black  p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-4">
                   <Button 
                     onClick={() => setShowLikedModal(false)} 
-                    className="bg-white/10 hover:bg-white/20 rounded-full p-2"
+                    className="bg-black hover:bg-white/20 rounded-full p-2"
                     size="icon"
                   >
                     <X className="w-5 h-5" />
                   </Button>
                   
                   <div>
-                    <h2 className="text-lg md:text-xl font-light">Shortlisted Wallpapers</h2>
+                    <h2 className="text-lg md:text-xl font-light">Shortlisted Wall Coverings</h2>
                     <p className="text-sm text-zinc-400">{likedWallpapers.length} items selected</p>
                   </div>
                 </div>
@@ -1359,14 +1642,6 @@ export default function EllendorfWallpaperApp() {
                       )}
                     </Button>
                   </div>
-                  
-                  <Button 
-                    onClick={() => { setShowLikedModal(false); setShowTemplateChoice(true); }} 
-                    disabled={likedWallpapers.length === 0}
-                    className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 px-4 py-2 rounded-lg text-sm"
-                  >
-                    Generate Templates
-                  </Button>
                 </div>
               </div>
               
@@ -1374,8 +1649,8 @@ export default function EllendorfWallpaperApp() {
                 {likedWallpapers.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center p-8">
                     <Heart className="w-16 h-16 text-zinc-700 mb-4" />
-                    <h3 className="text-xl text-zinc-400 mb-2">No Shortlisted Wallpapers</h3>
-                    <p className="text-zinc-500">Click the heart icon on wallpapers to add them here.</p>
+                    <h3 className="text-xl text-zinc-400 mb-2">No Shortlisted Wall Coverings</h3>
+                    <p className="text-zinc-500">Click the heart icon on wall coverings to add them here.</p>
                   </div>
                 ) : (
                   <motion.div 
@@ -1401,7 +1676,7 @@ export default function EllendorfWallpaperApp() {
       </AnimatePresence>
 
       {/* Template Choice Modal */}
-      <AnimatePresence>
+      {/* <AnimatePresence>
         {showTemplateChoice && (
           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
             <div className="relative bg-gradient-to-br from-zinc-900 to-black rounded-xl md:rounded-2xl p-6 md:p-8 lg:p-12 shadow-2xl border border-zinc-700 max-w-4xl w-full">
@@ -1425,10 +1700,10 @@ export default function EllendorfWallpaperApp() {
             </div>
           </div>
         )}
-      </AnimatePresence>
+      </AnimatePresence> */}
 
       <footer className="py-6 px-4 border-t border-zinc-800 text-center text-zinc-500 text-sm">
-        <p>Ellendorf Luxury Wallpaper Collection | Powered by Reimagine AI</p>
+        <p>Ellendorf Luxury Wall Covering Collection | Powered by Reimagine AI</p>
         <p className="mt-1">© {new Date().getFullYear()} All rights reserved</p>
       </footer>
     </div>

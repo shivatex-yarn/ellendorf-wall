@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ReImagine Wallpaper APP",
   description: "An AI-powered wallpaper application",
+   icons: {
+    icon: "/brand.ico",
+  },
 };
 
 export default function RootLayout({
