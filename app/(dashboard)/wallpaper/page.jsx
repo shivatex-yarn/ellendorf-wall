@@ -4,6 +4,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Loader2, Eye, Sparkles, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react';
+import { LazyImage } from '@/components/LazyImage';
+
+const API_BASE = 'http://localhost:4500/api/wallpaper';
+const CHUNK_SIZE = 200;
+
+function parseList(data) {
+  if (Array.isArray(data)) return data;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  if (data?.items && Array.isArray(data.items)) return data.items;
+  return [];
+}
 
 export default function Wallpaper() {
   const [quoteIndex, setQuoteIndex] = useState(0);
@@ -25,22 +36,64 @@ export default function Wallpaper() {
   ];
 
   useEffect(() => {
+    let cancelled = false;
+
+    const fetchChunk = async (page) => {
+      const res = await fetch(`${API_BASE}?page=${page}&limit=${CHUNK_SIZE}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      return parseList(data);
+    };
+
     const fetchWallpapers = async () => {
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:4500/api/wallpaper');
-        if (!res.ok) throw new Error('Failed to fetch');
-        const data = await res.json();
-        const activeOnly = data.filter(w => w.status === 'active');
-        setWallpapers(activeOnly || []);
-      } catch (err) {
-        setError('Unable to load collection. Please try again.');
-        console.error(err);
-      } finally {
+        const first = await fetchChunk(1);
+        const activeFirst = (first || []).filter((w) => w.status === 'active');
+        if (cancelled) return;
+        setWallpapers(activeFirst);
         setLoading(false);
+
+        if (activeFirst.length >= CHUNK_SIZE) {
+          let page = 2;
+          while (true) {
+            const next = await fetchChunk(page);
+            if (cancelled) return;
+            const activeNext = (next || []).filter((w) => w.status === 'active');
+            if (activeNext.length === 0) break;
+            setWallpapers((prev) => {
+              const ids = new Set(prev.map((w) => w.id));
+              const newItems = activeNext.filter((w) => !ids.has(w.id));
+              return newItems.length ? [...prev, ...newItems] : prev;
+            });
+            if (activeNext.length < CHUNK_SIZE) break;
+            page++;
+          }
+        }
+      } catch (err) {
+        try {
+          const res = await fetch(API_BASE);
+          if (!res.ok) throw new Error('Failed to fetch');
+          const data = await res.json();
+          const list = parseList(data);
+          const activeOnly = (list || []).filter((w) => w.status === 'active');
+          if (!cancelled) {
+            setWallpapers(activeOnly);
+            setError(null);
+          }
+        } catch (fallbackErr) {
+          if (!cancelled) {
+            setError('Unable to load collection. Please try again.');
+            console.error(fallbackErr);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
       }
     };
+
     fetchWallpapers();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -69,6 +122,19 @@ export default function Wallpaper() {
   );
 
   useEffect(() => setCurrentPage(1), [selectedCategory]);
+
+  // Prefetch next page images for smoother pagination (5k-friendly)
+  useEffect(() => {
+    if (!filteredWallpapers.length || currentPage >= totalPages) return;
+    const nextStart = currentPage * cardsPerPage;
+    const nextPageItems = filteredWallpapers.slice(nextStart, nextStart + cardsPerPage);
+    nextPageItems.forEach((wp) => {
+      if (wp?.imageUrl) {
+        const img = new Image();
+        img.src = wp.imageUrl;
+      }
+    });
+  }, [currentPage, totalPages, filteredWallpapers]);
 
   if (loading) {
     return (
@@ -173,10 +239,11 @@ export default function Wallpaper() {
                     onClick={() => setSelectedWallpaper(wp)}
                   >
                     <div className="aspect-[4/5] relative">
-                      <img
+                      <LazyImage
                         src={wp.imageUrl}
                         alt={wp.name}
-                        className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
+                        priority
+                        className="transition-transform duration-1000 group-hover:scale-110"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-90 transition-opacity duration-500" />
                     </div>

@@ -123,3 +123,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  @keyframes image-loader-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .image-loader-shimmer {
+    background: linear-gradient(
+      90deg,
+      oklch(0.97 0 0) 0%,
+      oklch(0.95 0 0) 50%,
+      oklch(0.97 0 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: image-loader-shimmer 1.2s ease-in-out infinite;
+  }
+}
