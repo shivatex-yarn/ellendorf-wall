@@ -25,8 +25,8 @@ export default function LuxuryLandingPage() {
   const features = [
     {
       icon: <Wand2 className="w-8 h-8" />,
-      title: "Advanced Design",
-      description: "Real-time design visualization with our  technology."
+      title: " Design",
+      description: "Exquisite patterns crafted by top designers."
     },
     {
       icon: <Palette className="w-8 h-8" />,

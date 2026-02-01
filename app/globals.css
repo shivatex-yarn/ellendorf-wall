@@ -1,4 +1,5 @@
 
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -127,9 +128,17 @@
 
 /* Performance optimizations for image loading */
 @layer utilities {
-  img {
+  /* Optimize image rendering and decoding */
+  img, picture {
     content-visibility: auto;
     contain-intrinsic-size: 1px 1000px;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  
+  /* Next.js Image optimization */
+  img[src*="data:image"] {
+    image-rendering: auto;
   }
   
   /* Smooth scrolling for better UX */
@@ -137,7 +146,7 @@
     scroll-behavior: smooth;
   }
   
-  /* Optimize image rendering */
+  /* Optimize lazy loaded images */
   img[loading="lazy"] {
     content-visibility: auto;
   }
@@ -151,16 +160,18 @@
       transform: translateX(100%);
     }
   }
-  
-  /* Optimize image decoding */
-  img {
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
   }
   
-  /* GPU acceleration for smoother scrolling */
-  .grid {
+  /* GPU acceleration for smoother scrolling and image transforms */
+  .grid, [class*="group-hover:scale"] {
     will-change: contents;
     transform: translateZ(0);
+  }
+  
+  /* Optimize image container rendering */
+  [class*="aspect-"] {
+    contain: layout style paint;
   }
 }
