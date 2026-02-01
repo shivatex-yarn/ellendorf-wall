@@ -20,7 +20,6 @@ import {
 import { jsPDF } from "jspdf";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
-import OptimizedImage from "@/components/OptimizedImage";
 // Import shared image loading utilities with retry logic
 import { imageCache, preloadImage, preloadImagesBatch } from '@/lib/imageLoader';
 
@@ -99,14 +98,20 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
+// Helper: get initial image state from cache so pagination doesn't re-show loading
+const getInitialImageState = (imageUrl) => {
+  if (!imageUrl) return { src: "/placeholder.jpg", isLoading: false, isError: false };
+  const cached = imageCache.get(imageUrl);
+  if (cached && cached !== null && !(cached instanceof Promise)) {
+    return { src: cached, isLoading: false, isError: false };
+  }
+  return { src: "", isLoading: true, isError: false };
+};
+
 // WallpaperCard Component - Optimized with Intersection Observer for lazy loading
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [imageState, setImageState] = useState({
-    src: "",
-    isLoading: true,
-    isError: false
-  });
+  const [imageState, setImageState] = useState(() => getInitialImageState(wp?.imageUrl));
   const imgRef = useRef(null);
   const observerRef = useRef(null);
 
@@ -179,9 +184,9 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       } catch (error) {
         if (isMounted) {
           setImageState({
-            src: "/placeholder.jpg",
+            src: wp.imageUrl,
             isLoading: false,
-            isError: true
+            isError: false
           });
         }
       }
@@ -262,7 +267,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
           <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
           {/* Skeleton shimmer effect for better perceived performance */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[shimmer_2s_infinite] ${compact ? 'rounded-lg' : 'rounded-2xl'}" />
+          <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent rounded-[inherit] animate-shimmer ${compact ? 'rounded-lg' : 'rounded-2xl'}`} />
         </div>
       )}
       
@@ -272,26 +277,22 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         </div>
       )}
 
-      {/* Main image - Using OptimizedImage for better performance */}
+      {/* Main image - native img so any size/domain loads (no Next Image limits) */}
       <motion.div 
         ref={imgRef}
         layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
         className="w-full h-full"
       >
         {imageState.src && !imageState.isLoading && !imageState.isError && (
-          <OptimizedImage
+          <img
             src={imageState.src}
             alt={wp.name}
-            priority={index < 12}
-            className={`w-full h-full transition-transform duration-500 group-hover:scale-110 ${
+            loading={index < 12 ? "eager" : "lazy"}
+            decoding="async"
+            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
-            sizes={compact 
-              ? "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 14vw"
-              : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
-            }
-            quality={85}
-            onError={(e) => {
+            onError={() => {
               setImageState({
                 src: "/placeholder.jpg",
                 isLoading: false,
@@ -329,12 +330,12 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
 WallpaperCard.displayName = 'WallpaperCard';
 
-// Compact Wallpaper Card for Liked Modal - Optimized
+// Compact Wallpaper Card for Liked Modal - Optimized (init from cache to avoid re-loading)
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [imageState, setImageState] = useState({
-    src: "",
-    isLoading: true
+  const [imageState, setImageState] = useState(() => {
+    const s = getInitialImageState(wp?.imageUrl);
+    return { src: s.src, isLoading: s.isLoading };
   });
   const imgRef = useRef(null);
   const observerRef = useRef(null);
@@ -344,16 +345,9 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
     
     const loadImage = async (priority = false) => {
       if (!wp.imageUrl) {
-        if (isMounted) {
-          setImageState({
-            src: "/placeholder.jpg",
-            isLoading: false
-          });
-        }
+        if (isMounted) setImageState({ src: "/placeholder.jpg", isLoading: false });
         return;
       }
-
-      // Check cache first
       const cachedValue = imageCache.get(wp.imageUrl);
       if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
         if (isMounted) {
@@ -377,35 +371,18 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
             });
           }
         } catch (error) {
-          if (isMounted) {
-            setImageState({
-              src: "/placeholder.jpg",
-              isLoading: false
-            });
-          }
+          if (isMounted) setImageState({ src: wp.imageUrl, isLoading: false });
         }
         return;
       }
 
-      if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true }));
-      }
+      if (isMounted) setImageState(prev => ({ ...prev, isLoading: true }));
 
       try {
         const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 20);
-        if (isMounted) {
-          setImageState({
-            src: loadedUrl,
-            isLoading: false
-          });
-        }
+        if (isMounted) setImageState({ src: loadedUrl, isLoading: false });
       } catch (error) {
-        if (isMounted) {
-          setImageState({
-            src: "/placeholder.jpg",
-            isLoading: false
-          });
-        }
+        if (isMounted) setImageState({ src: wp.imageUrl, isLoading: false });
       }
     };
 
@@ -479,19 +456,13 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         )}
         
         {imageState.src && !imageState.isLoading && (
-          <OptimizedImage
+          <img
             src={imageState.src}
             alt={wp.name}
-            priority={index < 20}
-            className="w-full h-full transition-transform duration-300 group-hover:scale-110"
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 14vw"
-            quality={80}
-            onError={(e) => {
-              setImageState({
-                src: "/placeholder.jpg",
-                isLoading: false
-              });
-            }}
+            loading={index < 20 ? "eager" : "lazy"}
+            decoding="async"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+            onError={() => setImageState({ src: "/placeholder.jpg", isLoading: false })}
           />
         )}
 
@@ -640,8 +611,8 @@ const CategorySection = React.memo(({
     }
   }, [containsHighlightedProduct, currentPage]);
 
-  // Handle page change - Optimized with immediate preloading
-  const handlePageChange = useCallback((direction) => {
+  // Handle page change - Preload next page images first so they're in cache when cards mount (no loading flash)
+  const handlePageChange = useCallback(async (direction) => {
     let newPage = currentPage;
     if (direction === 'prev' && currentPage > 0) {
       newPage = currentPage - 1;
@@ -651,32 +622,27 @@ const CategorySection = React.memo(({
       return;
     }
     
-    // Immediately preload images for the new page
     const newPageStart = newPage * itemsPerPage;
     const newPageItems = categoryItems.slice(newPageStart, newPageStart + itemsPerPage);
     const newPageUrls = newPageItems
       .filter(wp => wp.imageUrl)
       .map(wp => wp.imageUrl);
     
-    // Preload with high priority
+    // Preload new page images BEFORE changing page so cards init from cache and don't show loading
     if (newPageUrls.length > 0) {
-      preloadImagesBatch(newPageUrls, 6, true);
+      await preloadImagesBatch(newPageUrls, 6, true);
     }
     
-    // Also preload the page after the new page
+    // Preload next-next page in background (don't block)
     const nextNextPageStart = Math.min(newPageStart + itemsPerPage, categoryItems.length);
     const nextNextPageItems = categoryItems.slice(nextNextPageStart, nextNextPageStart + itemsPerPage);
     const nextNextPageUrls = nextNextPageItems
       .filter(wp => wp.imageUrl)
       .map(wp => wp.imageUrl);
-    
     if (nextNextPageUrls.length > 0) {
-      setTimeout(() => {
-        preloadImagesBatch(nextNextPageUrls, 4, false);
-      }, 50);
+      preloadImagesBatch(nextNextPageUrls, 4, false);
     }
     
-    // Update page state - this will trigger visibleItems update
     setPageByCategory(prev => ({ ...prev, [category]: newPage }));
   }, [category, currentPage, totalPages, setPageByCategory, categoryItems, itemsPerPage]);
 
@@ -710,11 +676,10 @@ const CategorySection = React.memo(({
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {visibleItems.map((wp, idx) => {
-          // Calculate global index for priority loading
           const globalIndex = start + idx;
           return (
             <WallpaperCard 
-              key={`${wp.id}-${currentPage}-${idx}`} 
+              key={wp.id} 
               wp={wp} 
               index={globalIndex}
               onClick={onCardClick}
@@ -732,48 +697,32 @@ const CategorySection = React.memo(({
 
 CategorySection.displayName = 'CategorySection';
 
-// Lightbox Component for viewing full-size wallpaper
+// Lightbox Component for viewing full-size wallpaper (init from cache when already loaded)
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
-  const [imageState, setImageState] = useState({
-    src: "",
-    isLoading: true
-  });
+  const [imageState, setImageState] = useState({ src: "", isLoading: true });
 
-  // Preload high-quality image for lightbox
   useEffect(() => {
-    if (wallpaper?.imageUrl && isOpen) {
-      let isMounted = true;
-      
-      const loadImage = async () => {
-        if (isMounted) {
-          setImageState(prev => ({ ...prev, isLoading: true }));
-        }
-
-        try {
-          const cachedUrl = await preloadImage(wallpaper.imageUrl);
-          if (isMounted) {
-            setImageState({
-              src: cachedUrl,
-              isLoading: false
-            });
-          }
-        } catch (error) {
-          console.error("Failed to load lightbox image:", error);
-          if (isMounted) {
-            setImageState({
-              src: wallpaper.imageUrl,
-              isLoading: false
-            });
-          }
-        }
-      };
-      
-      loadImage();
-      
-      return () => {
-        isMounted = false;
-      };
+    if (!wallpaper?.imageUrl || !isOpen) {
+      setImageState({ src: "", isLoading: true });
+      return;
     }
+    let isMounted = true;
+    const cached = imageCache.get(wallpaper.imageUrl);
+    if (cached && cached !== null && !(cached instanceof Promise)) {
+      setImageState({ src: cached, isLoading: false });
+      return;
+    }
+    setImageState({ src: "", isLoading: true });
+    const loadImage = async () => {
+      try {
+        const cachedUrl = await preloadImage(wallpaper.imageUrl);
+        if (isMounted) setImageState({ src: cachedUrl, isLoading: false });
+      } catch (error) {
+        if (isMounted) setImageState({ src: wallpaper.imageUrl, isLoading: false });
+      }
+    };
+    loadImage();
+    return () => { isMounted = false; };
   }, [wallpaper?.imageUrl, isOpen]);
 
   if (!isOpen || !wallpaper) return null;
@@ -883,13 +832,9 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                         src={imageState.src}
                         alt={wallpaper.name}
                         loading="eager"
+                        decoding="async"
                         className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                        onError={(e) => {
-                          setImageState({
-                            src: "/placeholder.jpg",
-                            isLoading: false
-                          });
-                        }}
+                        onError={() => setImageState({ src: "/placeholder.jpg", isLoading: false })}
                       />
                     </motion.div>
                   )}

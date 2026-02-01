@@ -159,6 +159,9 @@
       transform: translateX(100%);
     }
   }
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
   
   /* GPU acceleration for smoother scrolling and image transforms */
   .grid, [class*="group-hover:scale"] {
