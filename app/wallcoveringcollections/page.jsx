@@ -114,6 +114,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
   const [imageState, setImageState] = useState(() => getInitialImageState(wp?.imageUrl));
   const imgRef = useRef(null);
   const observerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   // Optimized: Use Intersection Observer for lazy loading + cache check
   useEffect(() => {
@@ -224,11 +225,12 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
     return () => {
       isMounted = false;
+      mountedRef.current = false;
       if (observerRef.current && imgRef.current) {
         observerRef.current.unobserve(imgRef.current);
       }
     };
-  }, [wp.imageUrl, index]); // Include index for priority loading
+  }, [wp.imageUrl, index]);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -293,11 +295,13 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
             onError={() => {
-              setImageState({
-                src: "/placeholder.jpg",
-                isLoading: false,
-                isError: true
-              });
+              if (mountedRef.current) {
+                setImageState({
+                  src: "/placeholder.jpg",
+                  isLoading: false,
+                  isError: true
+                });
+              }
             }}
           />
         )}
@@ -339,6 +343,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   });
   const imgRef = useRef(null);
   const observerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -417,6 +422,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
 
     return () => {
       isMounted = false;
+      mountedRef.current = false;
       if (observerRef.current && imgRef.current) {
         observerRef.current.unobserve(imgRef.current);
       }
@@ -462,7 +468,9 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
             loading={index < 20 ? "eager" : "lazy"}
             decoding="async"
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-            onError={() => setImageState({ src: "/placeholder.jpg", isLoading: false })}
+            onError={() => {
+              if (mountedRef.current) setImageState({ src: "/placeholder.jpg", isLoading: false });
+            }}
           />
         )}
 
@@ -700,29 +708,30 @@ CategorySection.displayName = 'CategorySection';
 // Lightbox Component for viewing full-size wallpaper (init from cache when already loaded)
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
   const [imageState, setImageState] = useState({ src: "", isLoading: true });
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     if (!wallpaper?.imageUrl || !isOpen) {
       setImageState({ src: "", isLoading: true });
-      return;
+      return () => { mountedRef.current = false; };
     }
-    let isMounted = true;
     const cached = imageCache.get(wallpaper.imageUrl);
     if (cached && cached !== null && !(cached instanceof Promise)) {
       setImageState({ src: cached, isLoading: false });
-      return;
+      return () => { mountedRef.current = false; };
     }
     setImageState({ src: "", isLoading: true });
     const loadImage = async () => {
       try {
         const cachedUrl = await preloadImage(wallpaper.imageUrl);
-        if (isMounted) setImageState({ src: cachedUrl, isLoading: false });
+        if (mountedRef.current) setImageState({ src: cachedUrl, isLoading: false });
       } catch (error) {
-        if (isMounted) setImageState({ src: wallpaper.imageUrl, isLoading: false });
+        if (mountedRef.current) setImageState({ src: wallpaper.imageUrl, isLoading: false });
       }
     };
     loadImage();
-    return () => { isMounted = false; };
+    return () => { mountedRef.current = false; };
   }, [wallpaper?.imageUrl, isOpen]);
 
   if (!isOpen || !wallpaper) return null;
@@ -834,7 +843,9 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                         loading="eager"
                         decoding="async"
                         className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                        onError={() => setImageState({ src: "/placeholder.jpg", isLoading: false })}
+                        onError={() => {
+                          if (mountedRef.current) setImageState({ src: "/placeholder.jpg", isLoading: false });
+                        }}
                       />
                     </motion.div>
                   )}
