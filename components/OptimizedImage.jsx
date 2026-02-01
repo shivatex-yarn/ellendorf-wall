@@ -9,7 +9,8 @@ const DEFAULT_BLUR =
 
 /**
  * OptimizedImage Component
- * Uses Next.js Image component with automatic optimization, lazy loading, and blur placeholders
+ * Uses Next.js Image with automatic optimization (MB→KB), lazy loading, and blur placeholders.
+ * quality=85 and sizes keep clarity while serving WebP/AVIF in KB range.
  */
 const OptimizedImage = ({
   src,

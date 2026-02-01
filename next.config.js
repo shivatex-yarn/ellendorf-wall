@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Image optimization: MB→KB via WebP/AVIF; clarity preserved with quality
   images: {
     remotePatterns: [
       {
