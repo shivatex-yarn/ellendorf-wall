@@ -36,9 +36,8 @@ const useAuth = () => ({
   loadingUser: false
 });
 
-// Temporary imageCache mock - replace with actual import when available
-const preloadImage = () => {};
-const imageCache = {};
+// Import image loading utilities
+import { preloadAllImages, imageCache } from '@/lib/imageLoader';
 
 export default function Wallpaper() {
   const [quoteIndex, setQuoteIndex] = useState(0);
@@ -54,6 +53,7 @@ export default function Wallpaper() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [imageLoadProgress, setImageLoadProgress] = useState({ loaded: 0, total: 0 });
 
   const cardsPerPage = viewMode === 'grid' ? 9 : 6;
 
@@ -69,6 +69,7 @@ export default function Wallpaper() {
     const fetchWallpapers = async () => {
       setLoading(true);
       setError(null);
+      setImageLoadProgress({ loaded: 0, total: 0 });
 
       try {
         const baseUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4500';
@@ -76,7 +77,23 @@ export default function Wallpaper() {
         
         const data = response.data;
         const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
+        
+        // Set wallpapers immediately so UI can render
         setWallpapers(activeOnly);
+        
+        // Aggressively preload ALL images during loading state
+        const imageUrls = activeOnly
+          .filter(w => w.imageUrl && w.imageUrl !== "/placeholder.jpg")
+          .map(w => w.imageUrl);
+        
+        setImageLoadProgress({ loaded: 0, total: imageUrls.length });
+        
+        // Preload all images with progress tracking
+        await preloadAllImages(activeOnly, (loaded, total) => {
+          setImageLoadProgress({ loaded, total });
+        });
+        
+        console.log(`Successfully preloaded ${imageUrls.length} images`);
       } catch (err) {
         console.error('Error fetching wallpapers:', err);
         setError('Unable to load collection. Please try again.');
@@ -512,10 +529,14 @@ export default function Wallpaper() {
   };
 
   if (loading) {
+    const progressPercent = imageLoadProgress.total > 0 
+      ? Math.round((imageLoadProgress.loaded / imageLoadProgress.total) * 100)
+      : 0;
+    
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
         <motion.div 
-          className="text-center" 
+          className="text-center"
           initial={{ opacity: 0 }} 
           animate={{ opacity: 1 }}
         >
@@ -527,7 +548,26 @@ export default function Wallpaper() {
             <div className="w-20 h-20 border-4 border-transparent border-t-blue-500 border-r-blue-500 rounded-full" />
           </motion.div>
           <p className="text-2xl font-light text-slate-700">Curating Luxury Collection...</p>
-          <p className="text-sm text-slate-500 mt-2">Loading premium designs</p>
+          <p className="text-sm text-slate-500 mt-2">
+            {imageLoadProgress.total > 0 
+              ? `Loading images: ${imageLoadProgress.loaded} / ${imageLoadProgress.total} (${progressPercent}%)`
+              : 'Loading premium designs...'
+            }
+          </p>
+          
+          {/* Progress bar */}
+          {imageLoadProgress.total > 0 && (
+            <div className="mt-6 w-64 mx-auto">
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <motion.div
+                  className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPercent}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+            </div>
+          )}
         </motion.div>
       </div>
     );
@@ -826,6 +866,20 @@ export default function Wallpaper() {
                           src={wp.imageUrl}
                           alt={wp.name}
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                          loading="lazy"
+                          onError={(e) => {
+                            // Retry loading the image if it fails
+                            const img = e.target;
+                            const retryCount = parseInt(img.dataset.retryCount || '0');
+                            if (retryCount < 3) {
+                              img.dataset.retryCount = (retryCount + 1).toString();
+                              setTimeout(() => {
+                                img.src = wp.imageUrl + '?retry=' + Date.now();
+                              }, 1000 * (retryCount + 1));
+                            } else {
+                              img.src = "/placeholder.jpg";
+                            }
+                          }}
                         />
                         
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -918,6 +972,20 @@ export default function Wallpaper() {
                             src={wp.imageUrl}
                             alt={wp.name}
                             className="w-full h-64 md:h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            loading="lazy"
+                            onError={(e) => {
+                              // Retry loading the image if it fails
+                              const img = e.target;
+                              const retryCount = parseInt(img.dataset.retryCount || '0');
+                              if (retryCount < 3) {
+                                img.dataset.retryCount = (retryCount + 1).toString();
+                                setTimeout(() => {
+                                  img.src = wp.imageUrl + '?retry=' + Date.now();
+                                }, 1000 * (retryCount + 1));
+                              } else {
+                                img.src = "/placeholder.jpg";
+                              }
+                            }}
                           />
                           <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium text-slate-700">
                             {wp.subCategory?.name || "Premium"}
@@ -1063,6 +1131,20 @@ export default function Wallpaper() {
                   src={selectedWallpaper.imageUrl}
                   alt={selectedWallpaper.name}
                   className="w-full h-full object-contain"
+                  loading="eager"
+                  onError={(e) => {
+                    // Retry loading the image if it fails
+                    const img = e.target;
+                    const retryCount = parseInt(img.dataset.retryCount || '0');
+                    if (retryCount < 3) {
+                      img.dataset.retryCount = (retryCount + 1).toString();
+                      setTimeout(() => {
+                        img.src = selectedWallpaper.imageUrl + '?retry=' + Date.now();
+                      }, 1000 * (retryCount + 1));
+                    } else {
+                      img.src = "/placeholder.jpg";
+                    }
+                  }}
                 />
                 
                 <div className="absolute inset-0 bg-gradient-to-t from-white/80 via-transparent to-transparent" />

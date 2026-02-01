@@ -20,209 +20,9 @@ import {
 import { jsPDF } from "jspdf";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
-
-// Enhanced Image Cache with LRU (Least Recently Used) strategy
-class ImageCache {
-  constructor(maxSize = 500) {
-    this.cache = new Map();
-    this.maxSize = maxSize;
-    this.accessOrder = [];
-    this.loadingPromises = new Map(); // Track ongoing loads to prevent duplicates
-  }
-
-  has(key) {
-    return this.cache.has(key);
-  }
-
-  get(key) {
-    if (this.cache.has(key)) {
-      // Move to end of access order (most recently used)
-      this.accessOrder = this.accessOrder.filter(k => k !== key);
-      this.accessOrder.push(key);
-      return this.cache.get(key);
-    }
-    return null;
-  }
-
-  set(key, value) {
-    if (this.cache.size >= this.maxSize) {
-      // Remove least recently used item
-      const lruKey = this.accessOrder.shift();
-      if (lruKey) {
-        this.cache.delete(lruKey);
-        this.loadingPromises.delete(lruKey);
-      }
-    }
-    
-    this.cache.set(key, value);
-    this.accessOrder.push(key);
-    
-    // Clean up old entries if they exceed max size
-    while (this.accessOrder.length > this.maxSize) {
-      const oldKey = this.accessOrder.shift();
-      if (oldKey) {
-        this.cache.delete(oldKey);
-        this.loadingPromises.delete(oldKey);
-      }
-    }
-  }
-
-  getLoadingPromise(key) {
-    return this.loadingPromises.get(key);
-  }
-
-  setLoadingPromise(key, promise) {
-    this.loadingPromises.set(key, promise);
-  }
-
-  clear() {
-    this.cache.clear();
-    this.accessOrder = [];
-    this.loadingPromises.clear();
-  }
-}
-
-const imageCache = new ImageCache(500); // Increased cache size for 1000 images
-
-// Ultra-optimized preload image function with better caching and priority loading
-const preloadImage = (url, priority = false) => {
-  return new Promise((resolve, reject) => {
-    // Check cache first
-    if (imageCache.has(url)) {
-      const cachedValue = imageCache.get(url);
-      if (cachedValue === null) {
-        // If cached value is null (failed), don't retry automatically
-        reject(new Error(`Image previously failed: ${url}`));
-        return;
-      } else if (cachedValue instanceof Promise) {
-        // If it's a pending promise, wait for it
-        cachedValue.then(resolve).catch(reject);
-        return;
-      } else {
-        // If it's already loaded, resolve immediately
-        resolve(cachedValue);
-        return;
-      }
-    }
-
-    // Check if there's already a loading promise
-    const existingPromise = imageCache.getLoadingPromise(url);
-    if (existingPromise) {
-      existingPromise.then(resolve).catch(reject);
-      return;
-    }
-
-    // Create a promise for this image
-    const imagePromise = new Promise((resolveLoad, rejectLoad) => {
-      // Use fetch API for better control and WebP support
-      const useFetch = priority && 'fetch' in window;
-      
-      if (useFetch) {
-        // Use fetch for priority images (better for WebP, better control)
-        fetch(url, {
-          mode: 'cors',
-          credentials: 'omit',
-          priority: priority ? 'high' : 'auto'
-        })
-        .then(response => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.blob();
-        })
-        .then(blob => {
-          const objectUrl = URL.createObjectURL(blob);
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          
-          img.onload = () => {
-            imageCache.set(url, url);
-            imageCache.loadingPromises.delete(url);
-            URL.revokeObjectURL(objectUrl);
-            resolveLoad(url);
-          };
-          
-          img.onerror = () => {
-            imageCache.set(url, null);
-            imageCache.loadingPromises.delete(url);
-            URL.revokeObjectURL(objectUrl);
-            rejectLoad(new Error(`Failed to load image: ${url}`));
-          };
-          
-          img.src = objectUrl;
-        })
-        .catch(() => {
-          // Fallback to traditional image loading
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          
-          if (priority && 'fetchPriority' in img) {
-            img.fetchPriority = 'high';
-          }
-          
-          img.onload = () => {
-            imageCache.set(url, url);
-            imageCache.loadingPromises.delete(url);
-            resolveLoad(url);
-          };
-          
-          img.onerror = () => {
-            imageCache.set(url, null);
-            imageCache.loadingPromises.delete(url);
-            rejectLoad(new Error(`Failed to load image: ${url}`));
-          };
-          
-          img.src = url;
-        });
-      } else {
-        // Traditional image loading for non-priority or older browsers
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        
-        if (priority && 'fetchPriority' in img) {
-          img.fetchPriority = 'high';
-        }
-        
-        img.onload = () => {
-          imageCache.set(url, url);
-          imageCache.loadingPromises.delete(url);
-          resolveLoad(url);
-        };
-        
-        img.onerror = () => {
-          imageCache.set(url, null);
-          imageCache.loadingPromises.delete(url);
-          rejectLoad(new Error(`Failed to load image: ${url}`));
-        };
-        
-        img.src = url;
-      }
-    });
-
-    // Store the promise in cache
-    imageCache.setLoadingPromise(url, imagePromise);
-    
-    // Wait for the image to load
-    imagePromise.then(resolve).catch(reject);
-  });
-};
-
-// Batch preload images with concurrency control
-const preloadImagesBatch = async (urls, concurrency = 6, priority = false) => {
-  const results = [];
-  for (let i = 0; i < urls.length; i += concurrency) {
-    const batch = urls.slice(i, i + concurrency);
-    const batchPromises = batch.map(url => 
-      preloadImage(url, priority).catch(() => null)
-    );
-    const batchResults = await Promise.allSettled(batchPromises);
-    results.push(...batchResults);
-    
-    // Small delay between batches to prevent overwhelming the browser
-    if (i + concurrency < urls.length) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-  }
-  return results;
-};
+import OptimizedImage from "@/components/OptimizedImage";
+// Import shared image loading utilities with retry logic
+import { imageCache, preloadImage, preloadImagesBatch } from '@/lib/imageLoader';
 
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
@@ -472,25 +272,31 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         </div>
       )}
 
-      {/* Main image */}
+      {/* Main image - Using OptimizedImage for better performance */}
       <motion.div 
         ref={imgRef}
         layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
         className="w-full h-full"
       >
         {imageState.src && !imageState.isLoading && !imageState.isError && (
-          <img
+          <OptimizedImage
             src={imageState.src}
             alt={wp.name}
-            loading={index < 12 ? "eager" : "lazy"}
-            fetchPriority={index < 12 ? "high" : "auto"}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
+            priority={index < 12}
+            className={`w-full h-full transition-transform duration-500 group-hover:scale-110 ${
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
-            crossOrigin="anonymous"
-            decoding="async"
+            sizes={compact 
+              ? "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 14vw"
+              : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
+            }
+            quality={85}
             onError={(e) => {
-              e.target.src = "/placeholder.jpg";
+              setImageState({
+                src: "/placeholder.jpg",
+                isLoading: false,
+                isError: true
+              });
             }}
           />
         )}
@@ -673,15 +479,18 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         )}
         
         {imageState.src && !imageState.isLoading && (
-          <img
+          <OptimizedImage
             src={imageState.src}
             alt={wp.name}
-            loading={index < 20 ? "eager" : "lazy"}
-            fetchPriority={index < 20 ? "high" : "auto"}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-            decoding="async"
+            priority={index < 20}
+            className="w-full h-full transition-transform duration-300 group-hover:scale-110"
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 14vw"
+            quality={80}
             onError={(e) => {
-              e.target.src = "/placeholder.jpg";
+              setImageState({
+                src: "/placeholder.jpg",
+                isLoading: false
+              });
             }}
           />
         )}
@@ -1064,18 +873,25 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                   )}
                   
                   {imageState.src && !imageState.isLoading && (
-                    <motion.img
+                    <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ duration: 0.3 }}
-                      src={imageState.src}
-                      alt={wallpaper.name}
-                      loading="eager"
-                      className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
-                      onError={(e) => {
-                        e.target.src = "/placeholder.jpg";
-                      }}
-                    />
+                      className="relative w-full h-full max-w-full max-h-[70vh] flex items-center justify-center"
+                    >
+                      <img
+                        src={imageState.src}
+                        alt={wallpaper.name}
+                        loading="eager"
+                        className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
+                        onError={(e) => {
+                          setImageState({
+                            src: "/placeholder.jpg",
+                            isLoading: false
+                          });
+                        }}
+                      />
+                    </motion.div>
                   )}
                 </motion.div>
                 
@@ -1258,16 +1074,28 @@ export default function EllendorfWallpaperApp() {
           .map(wp => wp.imageUrl);
         
         if (criticalUrls.length > 0) {
-          // Use link prefetch for even faster loading
-          criticalUrls.forEach(url => {
+          // Use link preload for critical above-the-fold images (faster than prefetch)
+          criticalUrls.slice(0, 6).forEach(url => {
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'image';
+            link.href = url;
+            link.fetchPriority = 'high';
+            link.crossOrigin = 'anonymous';
+            document.head.appendChild(link);
+          });
+          
+          // Use prefetch for remaining critical images
+          criticalUrls.slice(6).forEach(url => {
             const link = document.createElement('link');
             link.rel = 'prefetch';
             link.as = 'image';
             link.href = url;
+            link.crossOrigin = 'anonymous';
             document.head.appendChild(link);
           });
           
-          // Also preload with high priority
+          // Also preload with high priority using our batch function
           preloadImagesBatch(criticalUrls, 8, true);
         }
         

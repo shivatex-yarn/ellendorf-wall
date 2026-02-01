@@ -28,6 +28,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Preconnect to common image CDNs for faster loading */}
+        <link rel="preconnect" href="https://d1tjlmah25kwg0.cloudfront.net" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://d1tjlmah25kwg0.cloudfront.net" />
+        {/* Preconnect to API server */}
+        <link rel="preconnect" href="https://ellendorf-server.onrender.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://ellendorf-server.onrender.com" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning 
       >
