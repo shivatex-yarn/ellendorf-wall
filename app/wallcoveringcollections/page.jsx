@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from "react";
@@ -332,12 +331,8 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       )}
       
       {imageState.isError && (
-        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-2 ${compact ? 'rounded-lg' : 'rounded-2xl'} border-2 border-red-500/30`}>
-          <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center">
-            <X className="w-4 h-4 text-red-400" />
-          </div>
-          <span className="text-red-400 text-xs font-medium">Failed to load</span>
-          <span className="text-zinc-500 text-[10px]">Image unavailable</span>
+        <div className={`absolute inset-0 flex items-center justify-center overflow-hidden ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
+          <Skeleton className={`absolute inset-0 ${compact ? 'rounded-lg' : 'rounded-2xl'} bg-zinc-800`} />
         </div>
       )}
 
@@ -613,11 +608,8 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         )}
 
         {imageState.isError && (
-          <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-1 border border-red-500/30 rounded-lg">
-            <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center">
-              <X className="w-3 h-3 text-red-400" />
-            </div>
-            <span className="text-red-400 text-[10px] font-medium">Failed to load</span>
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-lg">
+            <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
           </div>
         )}
         
@@ -947,15 +939,18 @@ const CategorySection = React.memo(({
 
 CategorySection.displayName = 'CategorySection';
 
-// FIXED Lightbox Component - with simplified cleanup logic
-// FIXED Lightbox Component - with proper async state updates
+// Lightbox: always show image when open — use wallpaper.imageUrl as display src so image never fails to show
+// Lightbox: always show image when open — use wallpaper.imageUrl as display src so image never fails to show
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
-  const [imageState, setImageState] = useState({ src: "", isLoading: true, isError: false });
+  // Always have a display URL: prefer cached/preloaded, fallback to original so image always shows
+  const [imageState, setImageState] = useState({ src: "", isLoading: false, isError: false });
   const mountedRef = useRef(true);
   const timeoutRef = useRef(null);
 
+  // Extract imageUrl for cleaner dependency tracking
+  const imageUrl = wallpaper?.imageUrl || "";
+
   useEffect(() => {
-    // Set mounted to true when effect runs
     mountedRef.current = true;
     
     // Clear any existing timeout
@@ -963,94 +958,100 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-    
-    // Reset state when lightbox opens/closes or wallpaper changes
-    if (!wallpaper?.imageUrl || !isOpen) {
-      // Use setTimeout to make this asynchronous
+
+    if (!imageUrl || !isOpen) {
+      // Schedule state update for next render cycle
       const timer = setTimeout(() => {
         if (mountedRef.current) {
-          setImageState({ src: "", isLoading: true, isError: false });
+          setImageState({ src: "", isLoading: false, isError: false });
         }
       }, 0);
-      
       return () => {
         clearTimeout(timer);
         mountedRef.current = false;
       };
     }
-    
-    // Check cache first
-    const cached = imageCache.get(wallpaper.imageUrl);
-    if (cached && cached !== null && !(cached instanceof Promise)) {
-      // Use setTimeout for async state update
-      const timer = setTimeout(() => {
-        if (mountedRef.current) {
-          setImageState({ src: cached, isLoading: false, isError: false });
-        }
-      }, 0);
-      
-      return () => {
-        clearTimeout(timer);
-        mountedRef.current = false;
-      };
-    }
-    
-    // Set loading state asynchronously
-    const loadingTimer = setTimeout(() => {
+
+    // Use requestAnimationFrame or setTimeout to avoid synchronous updates
+    const animationFrame = requestAnimationFrame(() => {
       if (mountedRef.current) {
-        setImageState({ src: "", isLoading: true, isError: false });
+        setImageState({ src: imageUrl, isLoading: true, isError: false });
       }
-    }, 0);
-    
-    // Set timeout for loading (15 seconds max for lightbox)
+    });
+
+    // Helper functions
+    const applySuccess = (src) => {
+      if (mountedRef.current) {
+        setImageState({ src: src || imageUrl, isLoading: false, isError: false });
+      }
+    };
+
+    const applyError = () => {
+      if (mountedRef.current) {
+        // Keep showing original URL so img still renders
+        setImageState({ src: imageUrl, isLoading: false, isError: true });
+      }
+    };
+
+    // Check cache first - use setTimeout to defer state update
+    const cached = imageCache.get(imageUrl);
+    if (cached && cached !== null && !(cached instanceof Promise)) {
+      const timer = setTimeout(() => {
+        if (mountedRef.current) {
+          applySuccess(cached);
+        }
+      }, 0);
+      return () => {
+        cancelAnimationFrame(animationFrame);
+        clearTimeout(timer);
+        mountedRef.current = false;
+      };
+    }
+
+    // Set a timeout for overall loading (15 seconds)
     timeoutRef.current = setTimeout(() => {
       if (mountedRef.current) {
-        setImageState({ 
-          src: "", 
-          isLoading: false, 
-          isError: true 
-        });
+        applyError();
       }
     }, 15000);
-    
-    // Load image asynchronously
+
+    // Load the image
     const loadImage = async () => {
       try {
-        const cachedUrl = await preloadImage(wallpaper.imageUrl, true);
+        const cachedUrl = await preloadImage(imageUrl, true);
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
         }
         if (mountedRef.current) {
-          setImageState({ src: cachedUrl, isLoading: false, isError: false });
+          applySuccess(cachedUrl);
         }
-      } catch (error) {
+      } catch (err) {
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
         }
         if (mountedRef.current) {
-          setImageState({ 
-            src: "", 
-            isLoading: false, 
-            isError: true 
-          });
+          applyError();
         }
       }
     };
-    
-    loadImage();
-    
-    // Single cleanup function
+
+    // Use setTimeout to defer the async operation
+    const loadTimer = setTimeout(() => {
+      loadImage();
+    }, 0);
+
     return () => {
-      clearTimeout(loadingTimer);
+      cancelAnimationFrame(animationFrame);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      clearTimeout(loadTimer);
       mountedRef.current = false;
     };
-  }, [wallpaper?.imageUrl, isOpen]);
+  }, [imageUrl, isOpen]);
 
   // Rest of the component remains the same...
   if (!isOpen || !wallpaper) return null;
@@ -1133,7 +1134,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                 </Button>
               </div>
 
-              {/* Image container */}
+              {/* Image container — always show image when we have a URL so it never fails to display */}
               <div className="relative w-full h-full flex items-center justify-center p-4">
                 <motion.div 
                   layoutId={`image-${wallpaper.id}-${id}`}
@@ -1143,7 +1144,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="absolute inset-0 flex items-center justify-center rounded-lg overflow-hidden"
+                      className="absolute inset-0 flex items-center justify-center rounded-lg overflow-hidden z-10 pointer-events-none"
                     >
                       <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
                       <div className="relative z-10 flex flex-col items-center gap-3">
@@ -1153,23 +1154,18 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                     </motion.div>
                   )}
 
-                  {imageState.isError && (
+                  {imageState.isError && !imageState.src && (
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-4 rounded-lg border-2 border-red-500/30"
+                      className="absolute inset-0 flex items-center justify-center rounded-lg overflow-hidden"
                     >
-                      <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
-                        <X className="w-8 h-8 text-red-400" />
-                      </div>
-                      <div className="text-center">
-                        <span className="text-red-400 text-lg font-medium block mb-2">Failed to load</span>
-                        <span className="text-zinc-500 text-sm">Image unavailable or took too long to load</span>
-                      </div>
+                      <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
                     </motion.div>
                   )}
-                  
-                  {imageState.src && !imageState.isLoading && !imageState.isError && (
+
+                  {/* Always render img when wallpaper has imageUrl — use cached src or original URL so image always shows */}
+                  {wallpaper.imageUrl && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -1177,18 +1173,24 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                       className="relative w-full h-full max-w-full max-h-[70vh] flex items-center justify-center"
                     >
                       <img
-                        src={imageState.src}
+                        src={imageState.src || wallpaper.imageUrl}
                         alt={wallpaper.name}
                         loading="eager"
                         decoding="async"
                         className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
+                        onLoad={() => {
+                          if (mountedRef.current) {
+                            setImageState((prev) => ({ ...prev, isLoading: false, isError: false }));
+                          }
+                        }}
                         onError={() => {
                           if (mountedRef.current) {
-                            setImageState({ 
-                              src: "", 
-                              isLoading: false, 
-                              isError: true 
-                            });
+                            setImageState((prev) => ({
+                              ...prev,
+                              src: prev.src || wallpaper.imageUrl,
+                              isLoading: false,
+                              isError: true
+                            }));
                           }
                         }}
                       />
@@ -1521,6 +1523,10 @@ export default function EllendorfWallpaperApp() {
         marginBottom: 35
       };
 
+      // PDF image optimization: cap resolution and use medium JPEG quality so file size stays small (KBs per image)
+      const PDF_IMAGE_MAX_DIMENSION = 1000;  // longest side in px — sufficient for print/preview, keeps size down
+      const PDF_JPEG_QUALITY = 0.65;         // medium quality — compressed but not blurred
+
       // Helper function to load image with retry logic and cache support
       const loadImageForWatermark = async (imageUrl, retryCount = 0, maxRetries = 3) => {
         // First, check if image is already in cache
@@ -1738,9 +1744,30 @@ export default function EllendorfWallpaperApp() {
             footerY
           );
           ctx.restore();
-          
-          // Convert canvas to data URL - JPEG format for PDF compatibility
-          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
+
+          // Resize for PDF: cap longest side to PDF_IMAGE_MAX_DIMENSION so file size stays small (KBs per image)
+          const w = canvas.width;
+          const h = canvas.height;
+          const maxDim = Math.max(w, h);
+          let outW = Math.max(1, w);
+          let outH = Math.max(1, h);
+          if (maxDim > PDF_IMAGE_MAX_DIMENSION) {
+            const scale = PDF_IMAGE_MAX_DIMENSION / maxDim;
+            outW = Math.max(1, Math.round(w * scale));
+            outH = Math.max(1, Math.round(h * scale));
+          }
+          let watermarkedImage;
+          try {
+            const outCanvas = document.createElement('canvas');
+            outCanvas.width = outW;
+            outCanvas.height = outH;
+            const outCtx = outCanvas.getContext('2d');
+            outCtx.drawImage(canvas, 0, 0, w, h, 0, 0, outW, outH);
+            watermarkedImage = outCanvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+          } catch (resizeErr) {
+            // Fallback: use full-size canvas with medium quality so image still appears
+            watermarkedImage = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+          }
           
           // Clean up object URL if created
           if (objectUrl) {
