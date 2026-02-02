@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogIn, Eye, EyeOff } from "lucide-react";
+import { LogIn, Eye, EyeOff, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ export default function Auth() {
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [loginErrors, setLoginErrors] = useState({ email: "", password: "", submit: "" });
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // Add loading state
   const router = useRouter();
   const { login } = useAuth();
 
@@ -66,6 +67,8 @@ export default function Auth() {
       return;
     }
 
+    setIsLoading(true); // Start loading
+
     try {
       const apiUrl = `${process.env.NEXT_PUBLIC_API_BASE}/api/users/login`;
 
@@ -78,6 +81,7 @@ export default function Auth() {
 
       if (!["user", "admin", "superadmin"].includes(user.role)) {
         toast.error(`Unauthorized role: ${user.role}`, { position: "top-center" });
+        setIsLoading(false);
         return;
       }
 
@@ -107,8 +111,13 @@ export default function Auth() {
         }
       );
 
-      router.push("/wallcoveringcollections");
+      // Small delay to show the success message before redirecting
+      setTimeout(() => {
+        router.push("/wallcoveringcollections");
+      }, 1500);
+
     } catch (error) {
+      setIsLoading(false); // Stop loading on error
       const errorMessage = error?.response?.data?.error || "Login failed. Please try again.";
       setLoginErrors((prev) => ({ ...prev, submit: errorMessage }));
       toast.error(errorMessage, { duration: 3000, position: "top-center" });
@@ -190,9 +199,10 @@ export default function Auth() {
                       value={loginData.email}
                       onChange={handleLoginChange}
                       required
+                      disabled={isLoading} // Disable input during loading
                       className={`w-full pl-10 pr-4 py-4 text-lg border-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100/50 transition-all duration-300 ${
                         loginErrors.email ? "border-red-500" : "border-gray-200"
-                      }`}
+                      } ${isLoading ? "opacity-70 cursor-not-allowed" : ""}`}
                     />
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -216,9 +226,10 @@ export default function Auth() {
                       value={loginData.password}
                       onChange={handleLoginChange}
                       required
+                      disabled={isLoading} // Disable input during loading
                       className={`w-full pl-10 pr-12 py-4 text-lg border-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100/50 transition-all duration-300 ${
                         loginErrors.password ? "border-red-500" : "border-gray-200"
-                      }`}
+                      } ${isLoading ? "opacity-70 cursor-not-allowed" : ""}`}
                     />
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -228,7 +239,8 @@ export default function Auth() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-blue-500 transition-colors"
+                      disabled={isLoading} // Disable button during loading
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -242,10 +254,20 @@ export default function Auth() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-4 rounded-xl text-lg shadow-md transform hover:scale-[1.02] transition-all duration-300"
+                  disabled={isLoading} // Disable button during loading
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-4 rounded-xl text-lg shadow-md transform hover:scale-[1.02] transition-all duration-300 disabled:opacity-80 disabled:cursor-not-allowed disabled:transform-none"
                 >
-                  <LogIn className="w-5 h-5 mr-2" />
-                  Sign In Securely
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Signing In, Please Wait...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-5 h-5 mr-2" />
+                      Sign In Securely
+                    </>
+                  )}
                 </Button>
               </form>
 
