@@ -575,7 +575,7 @@ export default function Wallpaper() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-24 ">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-8">
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -1221,9 +1221,9 @@ export default function Wallpaper() {
             </div>
             
             <div className="flex flex-col items-center md:items-end space-y-2">
-              <p className="text-sm text-slate-500">
+              {/* <p className="text-sm text-slate-500">
                 Showing {filteredWallpapers.length} of {wallpapers.length} designs
-              </p>
+              </p> */}
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
