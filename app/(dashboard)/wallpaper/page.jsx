@@ -823,7 +823,7 @@ export default function Wallpaper() {
         <div className="container mx-auto px-6">
           <div className="mb-12 text-center">
             <p className="text-slate-600">
-              Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs
+              {/* Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs */}
               {selectedCategory !== 'All' && (
                 <span className="ml-2">
                   in <span className="font-semibold text-indigo-600">{selectedCategory}</span>
