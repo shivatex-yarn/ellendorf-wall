@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Heart,
   Search,
@@ -101,8 +102,12 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
 
 // Helper: get initial image state from cache so pagination doesn't re-show loading
 const getInitialImageState = (imageUrl) => {
-  if (!imageUrl) return { src: "/placeholder.jpg", isLoading: false, isError: false };
+  if (!imageUrl) return { src: "", isLoading: false, isError: true };
   const cached = imageCache.get(imageUrl);
+  if (cached === null) {
+    // Image previously failed to load
+    return { src: "", isLoading: false, isError: true };
+  }
   if (cached && cached !== null && !(cached instanceof Promise)) {
     return { src: cached, isLoading: false, isError: false };
   }
@@ -116,18 +121,25 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
   const imgRef = useRef(null);
   const observerRef = useRef(null);
   const mountedRef = useRef(true);
+  const timeoutRef = useRef(null);
 
   // Optimized: Use Intersection Observer for lazy loading + cache check
   useEffect(() => {
     let isMounted = true;
     
     const loadImage = async (priority = false) => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+
       if (!wp.imageUrl) {
         if (isMounted) {
           setImageState({
-            src: "/placeholder.jpg",
+            src: "",
             isLoading: false,
-            isError: false
+            isError: true
           });
         }
         return;
@@ -146,11 +158,31 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
         return;
       }
 
-      // If there's a pending promise, wait for it
+      // If there's a pending promise, wait for it with timeout
       const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
       if (loadingPromise) {
+        // Set loading state
+        if (isMounted) {
+          setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
+        }
+
+        // Set timeout for loading (10 seconds max)
+        timeoutRef.current = setTimeout(() => {
+          if (isMounted) {
+            setImageState({
+              src: "",
+              isLoading: false,
+              isError: true
+            });
+          }
+        }, 10000);
+
         try {
           const loadedUrl = await loadingPromise;
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
           if (isMounted) {
             setImageState({
               src: loadedUrl,
@@ -159,9 +191,13 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
             });
           }
         } catch (error) {
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
           if (isMounted) {
             setImageState({
-              src: "/placeholder.jpg",
+              src: "",
               isLoading: false,
               isError: true
             });
@@ -171,11 +207,26 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }
 
       if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true }));
+        setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
       }
+
+      // Set timeout for loading (10 seconds max)
+      timeoutRef.current = setTimeout(() => {
+        if (isMounted) {
+          setImageState({
+            src: "",
+            isLoading: false,
+            isError: true
+          });
+        }
+      }, 10000);
 
       try {
         const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 12);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (isMounted) {
           setImageState({
             src: loadedUrl,
@@ -184,11 +235,15 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
           });
         }
       } catch (error) {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (isMounted) {
           setImageState({
-            src: wp.imageUrl,
+            src: "",
             isLoading: false,
-            isError: false
+            isError: true
           });
         }
       }
@@ -265,18 +320,24 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
       onClick={handleClick}
     >
-      {/* Loading/Error state - Optimized with skeleton */}
+      {/* Loading/Error state - Using shadcn Skeleton */}
       {imageState.isLoading && (
-        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center overflow-hidden ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
-          {/* Skeleton shimmer effect for better perceived performance */}
-          <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent rounded-[inherit] ${compact ? 'rounded-lg' : 'rounded-2xl'} animate-shimmer`} />
-          <div className="relative z-10 w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+        <div className={`absolute inset-0 flex items-center justify-center overflow-hidden ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
+          <Skeleton className={`absolute inset-0 ${compact ? 'rounded-lg' : 'rounded-2xl'} bg-zinc-800`} />
+          <div className="relative z-10 flex flex-col items-center gap-2">
+            <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+            <span className="text-zinc-400 text-xs">Loading...</span>
+          </div>
         </div>
       )}
       
       {imageState.isError && (
-        <div className={`absolute inset-0 bg-zinc-800 flex items-center justify-center ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
-          <span className="text-zinc-500 text-xs">Failed to load</span>
+        <div className={`absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-2 ${compact ? 'rounded-lg' : 'rounded-2xl'} border-2 border-red-500/30`}>
+          <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center">
+            <X className="w-4 h-4 text-red-400" />
+          </div>
+          <span className="text-red-400 text-xs font-medium">Failed to load</span>
+          <span className="text-zinc-500 text-[10px]">Image unavailable</span>
         </div>
       )}
 
@@ -301,7 +362,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
             onError={() => {
               if (mountedRef.current) {
                 setImageState({
-                  src: "/placeholder.jpg",
+                  src: "",
                   isLoading: false,
                   isError: true
                 });
@@ -343,18 +404,31 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageState, setImageState] = useState(() => {
     const s = getInitialImageState(wp?.imageUrl);
-    return { src: s.src, isLoading: s.isLoading };
+    return { src: s.src, isLoading: s.isLoading, isError: s.isError || false };
   });
   const imgRef = useRef(null);
   const observerRef = useRef(null);
   const mountedRef = useRef(true);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
     
     const loadImage = async (priority = false) => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+
       if (!wp.imageUrl) {
-        if (isMounted) setImageState({ src: "/placeholder.jpg", isLoading: false });
+        if (isMounted) {
+          setImageState({ 
+            src: "", 
+            isLoading: false, 
+            isError: true 
+          });
+        }
         return;
       }
       const cachedValue = imageCache.get(wp.imageUrl);
@@ -362,36 +436,101 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         if (isMounted) {
           setImageState({
             src: cachedValue,
-            isLoading: false
+            isLoading: false,
+            isError: false
           });
         }
         return;
       }
 
-      // If there's a pending promise, wait for it
+      // If there's a pending promise, wait for it with timeout
       const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
       if (loadingPromise) {
+        // Set loading state
+        if (isMounted) {
+          setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
+        }
+
+        // Set timeout for loading (10 seconds max)
+        timeoutRef.current = setTimeout(() => {
+          if (isMounted) {
+            setImageState({ 
+              src: "", 
+              isLoading: false, 
+              isError: true 
+            });
+          }
+        }, 10000);
+
         try {
           const loadedUrl = await loadingPromise;
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
           if (isMounted) {
             setImageState({
               src: loadedUrl,
-              isLoading: false
+              isLoading: false,
+              isError: false
             });
           }
         } catch (error) {
-          if (isMounted) setImageState({ src: wp.imageUrl, isLoading: false });
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
+          if (isMounted) {
+            setImageState({ 
+              src: "", 
+              isLoading: false, 
+              isError: true 
+            });
+          }
         }
         return;
       }
 
-      if (isMounted) setImageState(prev => ({ ...prev, isLoading: true }));
+      if (isMounted) {
+        setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
+      }
+
+      // Set timeout for loading (10 seconds max)
+      timeoutRef.current = setTimeout(() => {
+        if (isMounted) {
+          setImageState({ 
+            src: "", 
+            isLoading: false, 
+            isError: true 
+          });
+        }
+      }, 10000);
 
       try {
         const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 20);
-        if (isMounted) setImageState({ src: loadedUrl, isLoading: false });
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        if (isMounted) {
+          setImageState({ 
+            src: loadedUrl, 
+            isLoading: false, 
+            isError: false 
+          });
+        }
       } catch (error) {
-        if (isMounted) setImageState({ src: wp.imageUrl, isLoading: false });
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        if (isMounted) {
+          setImageState({ 
+            src: "", 
+            isLoading: false, 
+            isError: true 
+          });
+        }
       }
     };
 
@@ -427,6 +566,10 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
     return () => {
       isMounted = false;
       mountedRef.current = false;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       if (observerRef.current && imgRef.current) {
         observerRef.current.unobserve(imgRef.current);
       }
@@ -460,14 +603,25 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         onClick={handleClick}
       >
         {imageState.isLoading && (
-          <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center overflow-hidden">
-            {/* Skeleton shimmer effect */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer" />
-            <div className="relative z-10 w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+            <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
+            <div className="relative z-10 flex flex-col items-center gap-1">
+              <div className="w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+              <span className="text-zinc-400 text-[10px]">Loading...</span>
+            </div>
+          </div>
+        )}
+
+        {imageState.isError && (
+          <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-1 border border-red-500/30 rounded-lg">
+            <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center">
+              <X className="w-3 h-3 text-red-400" />
+            </div>
+            <span className="text-red-400 text-[10px] font-medium">Failed to load</span>
           </div>
         )}
         
-        {imageState.src && !imageState.isLoading && (
+        {imageState.src && !imageState.isLoading && !imageState.isError && (
           <motion.img
             src={imageState.src}
             alt={wp.name}
@@ -478,7 +632,13 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
             onError={() => {
-              if (mountedRef.current) setImageState({ src: "/placeholder.jpg", isLoading: false });
+              if (mountedRef.current) {
+                setImageState({ 
+                  src: "", 
+                  isLoading: false, 
+                  isError: true 
+                });
+              }
             }}
           />
         )}
@@ -790,19 +950,26 @@ CategorySection.displayName = 'CategorySection';
 // FIXED Lightbox Component - with simplified cleanup logic
 // FIXED Lightbox Component - with proper async state updates
 const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
-  const [imageState, setImageState] = useState({ src: "", isLoading: true });
+  const [imageState, setImageState] = useState({ src: "", isLoading: true, isError: false });
   const mountedRef = useRef(true);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
     // Set mounted to true when effect runs
     mountedRef.current = true;
+    
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     
     // Reset state when lightbox opens/closes or wallpaper changes
     if (!wallpaper?.imageUrl || !isOpen) {
       // Use setTimeout to make this asynchronous
       const timer = setTimeout(() => {
         if (mountedRef.current) {
-          setImageState({ src: "", isLoading: true });
+          setImageState({ src: "", isLoading: true, isError: false });
         }
       }, 0);
       
@@ -818,7 +985,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
       // Use setTimeout for async state update
       const timer = setTimeout(() => {
         if (mountedRef.current) {
-          setImageState({ src: cached, isLoading: false });
+          setImageState({ src: cached, isLoading: false, isError: false });
         }
       }, 0);
       
@@ -831,20 +998,43 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
     // Set loading state asynchronously
     const loadingTimer = setTimeout(() => {
       if (mountedRef.current) {
-        setImageState({ src: "", isLoading: true });
+        setImageState({ src: "", isLoading: true, isError: false });
       }
     }, 0);
+    
+    // Set timeout for loading (15 seconds max for lightbox)
+    timeoutRef.current = setTimeout(() => {
+      if (mountedRef.current) {
+        setImageState({ 
+          src: "", 
+          isLoading: false, 
+          isError: true 
+        });
+      }
+    }, 15000);
     
     // Load image asynchronously
     const loadImage = async () => {
       try {
-        const cachedUrl = await preloadImage(wallpaper.imageUrl);
+        const cachedUrl = await preloadImage(wallpaper.imageUrl, true);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (mountedRef.current) {
-          setImageState({ src: cachedUrl, isLoading: false });
+          setImageState({ src: cachedUrl, isLoading: false, isError: false });
         }
       } catch (error) {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (mountedRef.current) {
-          setImageState({ src: wallpaper.imageUrl, isLoading: false });
+          setImageState({ 
+            src: "", 
+            isLoading: false, 
+            isError: true 
+          });
         }
       }
     };
@@ -854,6 +1044,10 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
     // Single cleanup function
     return () => {
       clearTimeout(loadingTimer);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       mountedRef.current = false;
     };
   }, [wallpaper?.imageUrl, isOpen]);
@@ -949,15 +1143,33 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center rounded-lg overflow-hidden"
+                      className="absolute inset-0 flex items-center justify-center rounded-lg overflow-hidden"
                     >
-                      {/* Skeleton shimmer effect */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer" />
-                      <div className="relative z-10 w-12 h-12 border-4 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                      <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
+                      <div className="relative z-10 flex flex-col items-center gap-3">
+                        <div className="w-12 h-12 border-4 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                        <span className="text-zinc-400 text-sm">Loading image...</span>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {imageState.isError && (
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center gap-4 rounded-lg border-2 border-red-500/30"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                        <X className="w-8 h-8 text-red-400" />
+                      </div>
+                      <div className="text-center">
+                        <span className="text-red-400 text-lg font-medium block mb-2">Failed to load</span>
+                        <span className="text-zinc-500 text-sm">Image unavailable or took too long to load</span>
+                      </div>
                     </motion.div>
                   )}
                   
-                  {imageState.src && !imageState.isLoading && (
+                  {imageState.src && !imageState.isLoading && !imageState.isError && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -972,7 +1184,11 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                         className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
                         onError={() => {
                           if (mountedRef.current) {
-                            setImageState({ src: "/placeholder.jpg", isLoading: false });
+                            setImageState({ 
+                              src: "", 
+                              isLoading: false, 
+                              isError: true 
+                            });
                           }
                         }}
                       />
