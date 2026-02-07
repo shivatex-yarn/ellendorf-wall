@@ -80,8 +80,30 @@ export default function Auth() {
 
       const { user, token } = res.data;
 
+      // Check if user role is valid
       if (!["user", "admin", "superadmin"].includes(user.role)) {
         toast.error(`Unauthorized role: ${user.role}`, { position: "top-center" });
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if user is active - only active users can login
+      if (user.status !== 'active') {
+        toast.error(
+          "Access Denied: Only active users can login. Please contact your administrator.",
+          { 
+            position: "top-center",
+            duration: 5000,
+            style: {
+              background: "linear-gradient(to right, #dc2626, #ef4444)",
+              color: "#fff",
+              borderRadius: "12px",
+              padding: "16px 24px",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+              minWidth: "320px",
+            }
+          }
+        );
         setIsLoading(false);
         return;
       }
