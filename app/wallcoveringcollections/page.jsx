@@ -1531,9 +1531,10 @@ export default function EllendorfWallpaperApp() {
         marginBottom: 35
       };
 
-      // PDF image optimization: cap resolution and use medium JPEG quality so file size stays small (KBs per image)
-      const PDF_IMAGE_MAX_DIMENSION = 1000;  // longest side in px — sufficient for print/preview, keeps size down
-      const PDF_JPEG_QUALITY = 0.65;         // medium quality — compressed but not blurred
+      // PDF image optimization: cap resolution and use optimized JPEG quality for KB file sizes
+      // Optimized for 3,000 concurrent users - smaller file sizes, faster generation
+      const PDF_IMAGE_MAX_DIMENSION = 800;   // Reduced from 1000 to 800 for smaller file size (KB range)
+      const PDF_JPEG_QUALITY = 0.55;         // Reduced from 0.65 to 0.55 for better compression (KB per image)
 
       // Helper function to load image with retry logic and cache support
       const loadImageForWatermark = async (imageUrl, retryCount = 0, maxRetries = 3) => {
@@ -1886,9 +1887,9 @@ export default function EllendorfWallpaperApp() {
         .map(wp => wp.imageUrl);
       
       if (imageUrls.length > 0) {
-        // Preload all images with high priority
+        // Preload all images with high priority - Optimized for 3,000 concurrent users
         try {
-          await preloadImagesBatch(imageUrls, 4, true);
+          await preloadImagesBatch(imageUrls, 12, true);
         } catch (preloadError) {
           console.warn("Some images failed to preload:", preloadError);
           // Continue anyway - will retry during watermarking
@@ -2074,23 +2075,71 @@ export default function EllendorfWallpaperApp() {
       // Save the PDF with luxury name
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
       
-      // Force save the PDF
+      // Force save the PDF with 100% reliability - multiple fallback methods
+      let pdfSaved = false;
+      const pdfBlob = doc.output('blob');
+      const pdfSizeKB = (pdfBlob.size / 1024).toFixed(2);
+      
+      console.log(`PDF generated: ${fileName}, Size: ${pdfSizeKB} KB`);
+      
+      // Method 1: Try standard save
       try {
         doc.save(fileName);
-        console.log("PDF downloaded successfully:", fileName);
+        pdfSaved = true;
+        console.log("PDF downloaded successfully (method 1):", fileName);
       } catch (saveError) {
-        console.error("PDF save error:", saveError);
-        // Try alternative save method
-        const pdfBlob = doc.output('blob');
-        const url = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        console.log("PDF downloaded successfully (alternative method):", fileName);
+        console.warn("PDF save method 1 failed, trying alternative:", saveError);
+      }
+      
+      // Method 2: Blob download with link (more reliable)
+      if (!pdfSaved) {
+        try {
+          const url = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          
+          // Clean up after a delay to ensure download starts
+          setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          }, 100);
+          
+          pdfSaved = true;
+          console.log("PDF downloaded successfully (method 2 - blob):", fileName);
+        } catch (blobError) {
+          console.error("PDF blob download failed:", blobError);
+        }
+      }
+      
+      // Method 3: Data URL fallback (last resort)
+      if (!pdfSaved) {
+        try {
+          const pdfDataUrl = doc.output('dataurlstring');
+          const link = document.createElement('a');
+          link.href = pdfDataUrl;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(link);
+          }, 100);
+          
+          console.log("PDF downloaded successfully (method 3 - data URL):", fileName);
+        } catch (dataUrlError) {
+          console.error("All PDF download methods failed:", dataUrlError);
+          throw new Error("Failed to download PDF. Please try again.");
+        }
+      }
+      
+      // Show success message with file size
+      if (typeof window !== 'undefined' && window.toast) {
+        window.toast.success(`PDF downloaded: ${pdfSizeKB} KB`, { duration: 3000 });
       }
       
     } catch (error) {
