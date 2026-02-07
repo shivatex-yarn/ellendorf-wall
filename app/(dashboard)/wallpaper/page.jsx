@@ -321,181 +321,169 @@ export default function Wallpaper() {
         img.src = imageSrc;
       });
       
-      // Process watermark
-      return new Promise((resolve, reject) => {
-        try {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          // Set canvas dimensions
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          // Draw original image
-          ctx.drawImage(img, 0, 0, img.width, img.height);
-          
-          // INCREASED FONT SIZES with MINIMIZED boxes
-          const STANDARD_FONT_SIZES = {
-            mainBrand: 88,     // INCREASED from 72 to 88
-            subBrand: 44,      // INCREASED from 36 to 44
-            premiumCollection: 36, // INCREASED from 28 to 36
-            footer: 32,        // INCREASED from 24 to 32
-            productInfo: 40    // INCREASED product info font
-          };
-          
-          const STANDARD_FOOTER = {
-            marginBottom: 50,  // INCREASED margin
-            height: 50         // INCREASED height
-          };
-          
-          // ========== CENTER WATERMARK WITH INCREASED TEXT SIZE ==========
-          ctx.save();
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
-          const boxWidth = canvas.width * 0.7; // REDUCED from 0.8 to 0.7 (minimized box)
-          const boxHeight = canvas.height * 0.2; // REDUCED from 0.25 to 0.2 (minimized box)
-          
-          // MINIMIZED transparent background box
-          ctx.globalAlpha = 0.25; // REDUCED from 0.32
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(
-            centerX - boxWidth/2, 
-            centerY - boxHeight/2, 
-            boxWidth, 
-            boxHeight
-          );
-          
-          // Main brand text with INCREASED size
-          ctx.globalAlpha = 0.95;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
+      // Process watermark directly (no need for nested Promise since function is already async)
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas dimensions
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Draw original image
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      
+      // INCREASED FONT SIZES with MINIMIZED boxes
+      const STANDARD_FONT_SIZES = {
+        mainBrand: 88,     // INCREASED from 72 to 88
+        subBrand: 44,      // INCREASED from 36 to 44
+        premiumCollection: 36, // INCREASED from 28 to 36
+        footer: 32,        // INCREASED from 24 to 32
+        productInfo: 40    // INCREASED product info font
+      };
+      
+      const STANDARD_FOOTER = {
+        marginBottom: 50,  // INCREASED margin
+        height: 50         // INCREASED height
+      };
+      
+      // ========== CENTER WATERMARK WITH INCREASED TEXT SIZE ==========
+      ctx.save();
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const boxWidth = canvas.width * 0.7; // REDUCED from 0.8 to 0.7 (minimized box)
+      const boxHeight = canvas.height * 0.2; // REDUCED from 0.25 to 0.2 (minimized box)
+      
+      // MINIMIZED transparent background box
+      ctx.globalAlpha = 0.25; // REDUCED from 0.32
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(
+        centerX - boxWidth/2, 
+        centerY - boxHeight/2, 
+        boxWidth, 
+        boxHeight
+      );
+      
+      // Main brand text with INCREASED size
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+      ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
 
-          // Subtle shadow for depth
-          ctx.shadowColor = "rgba(0, 0, 0, 0.3)"; // Increased shadow
-          ctx.shadowBlur = 10; // Increased blur
-          ctx.shadowOffsetY = 4; // Increased offset
+      // Subtle shadow for depth
+      ctx.shadowColor = "rgba(0, 0, 0, 0.3)"; // Increased shadow
+      ctx.shadowBlur = 10; // Increased blur
+      ctx.shadowOffsetY = 4; // Increased offset
 
-          // Brand text - LARGER as requested
-          ctx.fillText(
-            "ELLENDORF – Textile Wall Coverings",
-            centerX,
-            centerY - (boxHeight * 0.18) // Adjusted for larger text
-          );
+      // Brand text - LARGER as requested
+      ctx.fillText(
+        "ELLENDORF – Textile Wall Coverings",
+        centerX,
+        centerY - (boxHeight * 0.18) // Adjusted for larger text
+      );
 
-          // Reset shadow before drawing lines
-          ctx.shadowColor = "transparent";
-          ctx.shadowBlur = 0;
+      // Reset shadow before drawing lines
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
 
-          // Decorative luxury divider - THICKER
-          ctx.globalAlpha = 0.5; // Increased opacity
-          ctx.strokeStyle = "rgba(0,0,0,0.7)";
-          ctx.lineWidth = 2; // Increased line width
-          ctx.beginPath();
-          ctx.moveTo(centerX - boxWidth * 0.25, centerY + (boxHeight * 0.08)); // Adjusted position
-          ctx.lineTo(centerX + boxWidth * 0.25, centerY + (boxHeight * 0.08));
-          ctx.stroke();
+      // Decorative luxury divider - THICKER
+      ctx.globalAlpha = 0.5; // Increased opacity
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.lineWidth = 2; // Increased line width
+      ctx.beginPath();
+      ctx.moveTo(centerX - boxWidth * 0.25, centerY + (boxHeight * 0.08)); // Adjusted position
+      ctx.lineTo(centerX + boxWidth * 0.25, centerY + (boxHeight * 0.08));
+      ctx.stroke();
 
-          // Sub branding - INCREASED size
-          ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
-          ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.02));
-          
-          // Premium Collection text - INCREASED size
-          ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
-          ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.15));
-          
-          ctx.restore();
-          
-          // ========== STANDARD FOOTER with INCREASED TEXT SIZE ==========
-          ctx.save();
-          const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
-          const footerWidth = canvas.width * 0.75; // REDUCED from 0.8 to 0.75 (minimized)
-          
-          // MINIMIZED Footer background
-          ctx.globalAlpha = 0.06; // REDUCED from 0.08
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(
-            centerX - footerWidth/2,
-            footerY - (STANDARD_FOOTER.height/2),
-            footerWidth,
-            STANDARD_FOOTER.height
-          );
-          
-          // Footer text - INCREASED size
-          ctx.globalAlpha = 0.85; // Increased opacity
-          ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Darker
-          ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(
-            "ELLENDORF Textile Wall Coverings - Premium Collection",
-            centerX,
-            footerY
-          );
-          ctx.restore();
-          
-          // ========== TOP CORNER WATERMARKS with INCREASED TEXT SIZE ==========
-          ctx.save();
-          const topLeftX = 40;
-          const topLeftY = 40;
-          const topRightX = canvas.width - 40;
-          
-          // Product Code at top-left - INCREASED size
-          ctx.globalAlpha = 0.95;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
-          ctx.textAlign = "left";
-          ctx.textBaseline = "top";
-          ctx.fillText("CV019", topLeftX, topLeftY);
-          
-          // "Product Code:" label - INCREASED size
-          ctx.font = `italic 24px 'Times New Roman', serif`; // Increased from 18
-          ctx.fillText("Product Code:", topLeftX, topLeftY + 50); // Adjusted spacing
-          
-          // Collection at top-right - INCREASED size
-          ctx.textAlign = "right";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
-          ctx.fillText("City View(CV)", topRightX, topLeftY);
-          
-          // "Collection:" label - INCREASED size
-          ctx.font = `italic 24px 'Times New Roman', serif`; // Increased from 18
-          ctx.fillText("Collection:", topRightX, topLeftY + 50); // Adjusted spacing
-          
-          ctx.restore();
-          
-          // ========== BOTTOM-LEFT CORNER for additional branding ==========
-          ctx.save();
-          const bottomLeftX = 40;
-          const bottomLeftY = canvas.height - 60;
-          
-          ctx.globalAlpha = 0.7;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-          ctx.font = `italic 28px 'Times New Roman', serif`; // Increased size
-          ctx.textAlign = "left";
-          ctx.textBaseline = "bottom";
-          ctx.fillText("Luxury Textile Collection", bottomLeftX, bottomLeftY);
-          ctx.restore();
-          
-          // Convert to data URL with high quality
-          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95);
-          
-          // Clean up blob URL if we created one
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-          }
-          
-          resolve(watermarkedImage);
-          
-        } catch (error) {
-          // Clean up blob URL on error
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-          }
-          console.error("Error in watermark processing:", error);
-          reject(error);
-        }
-      });
+      // Sub branding - INCREASED size
+      ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
+      ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.02));
+      
+      // Premium Collection text - INCREASED size
+      ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
+      ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.15));
+      
+      ctx.restore();
+      
+      // ========== STANDARD FOOTER with INCREASED TEXT SIZE ==========
+      ctx.save();
+      const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
+      const footerWidth = canvas.width * 0.75; // REDUCED from 0.8 to 0.75 (minimized)
+      
+      // MINIMIZED Footer background
+      ctx.globalAlpha = 0.06; // REDUCED from 0.08
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(
+        centerX - footerWidth/2,
+        footerY - (STANDARD_FOOTER.height/2),
+        footerWidth,
+        STANDARD_FOOTER.height
+      );
+      
+      // Footer text - INCREASED size
+      ctx.globalAlpha = 0.85; // Increased opacity
+      ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Darker
+      ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        "ELLENDORF Textile Wall Coverings - Premium Collection",
+        centerX,
+        footerY
+      );
+      ctx.restore();
+      
+      // ========== TOP CORNER WATERMARKS with INCREASED TEXT SIZE ==========
+      ctx.save();
+      const topLeftX = 40;
+      const topLeftY = 40;
+      const topRightX = canvas.width - 40;
+      
+      // Product Code at top-left - INCREASED size
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+      ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("CV019", topLeftX, topLeftY);
+      
+      // "Product Code:" label - INCREASED size
+      ctx.font = `italic 24px 'Times New Roman', serif`; // Increased from 18
+      ctx.fillText("Product Code:", topLeftX, topLeftY + 50); // Adjusted spacing
+      
+      // Collection at top-right - INCREASED size
+      ctx.textAlign = "right";
+      ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
+      ctx.fillText("City View(CV)", topRightX, topLeftY);
+      
+      // "Collection:" label - INCREASED size
+      ctx.font = `italic 24px 'Times New Roman', serif`; // Increased from 18
+      ctx.fillText("Collection:", topRightX, topLeftY + 50); // Adjusted spacing
+      
+      ctx.restore();
+      
+      // ========== BOTTOM-LEFT CORNER for additional branding ==========
+      ctx.save();
+      const bottomLeftX = 40;
+      const bottomLeftY = canvas.height - 60;
+      
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.font = `italic 28px 'Times New Roman', serif`; // Increased size
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("Luxury Textile Collection", bottomLeftX, bottomLeftY);
+      ctx.restore();
+      
+      // Convert to data URL with high quality
+      const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95);
+      
+      // Clean up blob URL if we created one
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      
+      return watermarkedImage;
     } catch (error) {
       // Clean up blob URL on error
       if (objectUrl) {
