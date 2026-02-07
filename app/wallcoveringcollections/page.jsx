@@ -1480,6 +1480,84 @@ export default function EllendorfWallpaperApp() {
     return [...new Set(wallpapers.map((w) => w.subCategory?.name).filter(Boolean))];
   }, [wallpapers]);
 
+  // Helper function to load image with retry logic - CRITICAL for reliability
+  const loadImageForPDF = async (imageUrl, retryCount = 0, maxRetries = 5) => {
+          return new Promise((resolve, reject) => {
+      const img = new window.Image();
+            img.crossOrigin = "anonymous";
+            
+            const timeout = setTimeout(() => {
+        if (retryCount < maxRetries) {
+          console.log(`Image load timeout, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
+          clearTimeout(timeout);
+          loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          reject(new Error(`Image load timeout after ${maxRetries} retries: ${imageUrl}`));
+        }
+      }, 30000); // 30 second timeout per attempt
+            
+            img.onload = () => {
+              clearTimeout(timeout);
+        console.log(`Image loaded successfully:`, imageUrl, img.width, 'x', img.height);
+        resolve(img);
+            };
+            
+      img.onerror = (error) => {
+              clearTimeout(timeout);
+        if (retryCount < maxRetries) {
+          console.log(`Image load error, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
+          setTimeout(() => {
+            loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
+              .then(resolve)
+              .catch(reject);
+          }, 1000 * (retryCount + 1)); // Exponential backoff
+        } else {
+          reject(new Error(`Failed to load image after ${maxRetries} retries: ${imageUrl}`));
+        }
+      };
+      
+      // Try fetch first for better CORS handling
+      fetch(imageUrl, {
+                mode: 'cors',
+                credentials: 'omit',
+        cache: 'force-cache'
+      })
+        .then(response => {
+              if (response.ok) {
+            return response.blob();
+          }
+          throw new Error('Fetch failed');
+        })
+        .then(blob => {
+          const objectUrl = URL.createObjectURL(blob);
+          img.src = objectUrl;
+          // Clean up after load
+            img.onload = () => {
+              clearTimeout(timeout);
+            URL.revokeObjectURL(objectUrl);
+            resolve(img);
+          };
+        })
+        .catch(() => {
+          // Fallback to direct URL
+          img.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+        });
+    });
+  };
+
+  // Helper function to load brand image
+  const loadBrandImage = async () => {
+    try {
+      const img = await loadImageForPDF('/assets/brand.png', 0, 3);
+      return img;
+    } catch (error) {
+      console.warn('Brand image failed to load, continuing without it:', error);
+      return null;
+    }
+  };
+
   const downloadAllAsPDF = async (customerName) => {
     if (!customerName || !customerName.trim()) {
       alert("Please enter a customer name");
@@ -1493,27 +1571,389 @@ export default function EllendorfWallpaperApp() {
     }
   
     setIsGeneratingPDF(true);
+    
+    console.log(`Starting PDF generation for ${likedWallpapers.length} wallpapers...`);
   
     try {
-      // Import jsPDF dynamically to avoid bundle size issues
       const { default: jsPDF } = await import('jspdf');
       
-      const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       
-      // ... rest of your PDF generation code remains the same ...
+      const currentDate = new Date();
+      const timestamp = currentDate.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      const formattedDate = currentDate.toISOString().split('T')[0];
       
-      const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-      
-      if (typeof window !== 'undefined' && window.toast) {
-        window.toast.success(`Luxury Brochure Downloaded`, { duration: 3000 });
+      // Load brand image once for reuse
+      console.log('Loading brand image...');
+      const brandImg = await loadBrandImage();
+      let brandImageData = null;
+      if (brandImg) {
+        try {
+          const brandCanvas = document.createElement('canvas');
+          brandCanvas.width = brandImg.width;
+          brandCanvas.height = brandImg.height;
+          const brandCtx = brandCanvas.getContext('2d');
+          brandCtx.drawImage(brandImg, 0, 0);
+          brandImageData = brandCanvas.toDataURL('image/png', 1.0);
+          console.log('Brand image loaded successfully');
+        } catch (err) {
+          console.warn('Failed to convert brand image to data URL:', err);
+        }
       }
       
+      // ========== LUXURY COVER PAGE ==========
+      console.log('Creating luxury cover page...');
+      
+      // White background
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+      // Decorative corner elements
+      doc.setDrawColor(200, 180, 150);
+      doc.setLineWidth(0.5);
+      doc.line(15, 15, 35, 15);
+      doc.line(15, 15, 15, 35);
+      doc.line(pageWidth - 15, 15, pageWidth - 35, 15);
+      doc.line(pageWidth - 15, 15, pageWidth - 15, 35);
+      doc.line(15, pageHeight - 15, 35, pageHeight - 15);
+      doc.line(15, pageHeight - 15, 15, pageHeight - 35);
+      doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 35, pageHeight - 15);
+      doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 15, pageHeight - 35);
+      
+      // Brand logo above ELLENDORF (if available)
+      if (brandImageData) {
+        try {
+          const logoWidth = 60; // mm
+          const logoHeight = (logoWidth * brandImg.height) / brandImg.width;
+          const logoX = (pageWidth - logoWidth) / 2;
+          const logoY = 30;
+          doc.addImage(brandImageData, 'PNG', logoX, logoY, logoWidth, logoHeight);
+          console.log('Brand logo added to cover page');
+        } catch (err) {
+          console.warn('Failed to add brand logo to cover:', err);
+        }
+      }
+      
+      // Main title - ELLENDORF
+      doc.setTextColor(30, 30, 30);
+      doc.setFontSize(42);
+      doc.setFont("times", "bold");
+      const titleY = brandImageData ? 50 : 60;
+      doc.text("ELLENDORF", pageWidth / 2, titleY, { align: "center" });
+      
+      // Decorative line under title
+      doc.setDrawColor(200, 180, 150);
+      doc.setLineWidth(1);
+      const lineLength = 80;
+      doc.line(pageWidth / 2 - lineLength / 2, titleY + 5, pageWidth / 2 + lineLength / 2, titleY + 5);
+
+      // Subtitle
+      doc.setFontSize(20);
+      doc.setFont("times", "italic");
+      doc.setTextColor(80, 80, 80);
+      doc.text("Premium Wall Coverings", pageWidth / 2, titleY + 15, { align: "center" });
+
+      // Powered by text
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(120, 120, 120);
+      doc.text("Powered by Reimagine Walls", pageWidth / 2, titleY + 25, { align: "center" });
+      
+      // Customer information box
+      const boxY = titleY + 40;
+      const boxHeight = 45;
+      const boxWidth = pageWidth - 60;
+      const boxX = (pageWidth - boxWidth) / 2;
+      
+      doc.setFillColor(248, 248, 248);
+      doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 3, 3, 'F');
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 3, 3);
+      
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(40, 40, 40);
+      doc.text(`Client: ${customerName}`, pageWidth / 2, boxY + 12, { align: "center" });
+
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Generated: ${timestamp}`, pageWidth / 2, boxY + 22, { align: "center" });
+      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, boxY + 32, { align: "center" });
+      
+      // Decorative dashed line
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.3);
+      doc.setLineDashPattern([2, 2], 0);
+      doc.line(30, boxY + boxHeight + 20, pageWidth - 30, boxY + boxHeight + 20);
+      doc.setLineDashPattern([], 0);
+      
+      // Thank you message
+      doc.setFontSize(12);
+      doc.setFont("times", "italic");
+      doc.setTextColor(120, 120, 120);
+      doc.text("Thank you for choosing", pageWidth / 2, boxY + boxHeight + 35, { align: "center" });
+
+      // Collection name
+      doc.setFontSize(18);
+      doc.setFont("times", "bold");
+      doc.setTextColor(50, 50, 50);
+      doc.text("Ellendorf Luxury Collection", pageWidth / 2, boxY + boxHeight + 48, { align: "center" });
+
+      // Tagline
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(140, 140, 140);
+      doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, pageHeight - 25, { align: "center" });
+      
+      // Brand image at bottom left of cover page (small)
+      if (brandImageData) {
+        try {
+          const smallBrandWidth = 25; // mm - small size
+          const smallBrandHeight = (smallBrandWidth * brandImg.height) / brandImg.width;
+          doc.addImage(brandImageData, 'PNG', 10, pageHeight - smallBrandHeight - 10, smallBrandWidth, smallBrandHeight);
+        } catch (err) {
+          console.warn('Failed to add brand image to cover footer:', err);
+        }
+      }
+      
+      // Footer on first page
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page 1 of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 12, { align: "center" });
+      doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 6, { align: "center" });
+      
+      // ========== PROCESS EACH WALLPAPER ==========
+      console.log(`Processing ${likedWallpapers.length} wallpapers with images...`);
+      
+      for (let i = 0; i < likedWallpapers.length; i++) {
+        const wp = likedWallpapers[i];
+        console.log(`Processing ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
+        
+        doc.addPage();
+        
+        try {
+          // White background
+        doc.setFillColor(255, 255, 255);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+        
+          // Decorative top border
+        doc.setDrawColor(240, 240, 240);
+          doc.setLineWidth(0.3);
+          doc.line(20, 15, pageWidth - 20, 15);
+          
+          // Wallpaper name
+          doc.setTextColor(30, 30, 30);
+          doc.setFontSize(22);
+          doc.setFont("times", "bold");
+          const displayName = wp.name && wp.name.length > 50 
+            ? wp.name.substring(0, 47) + "..." 
+            : wp.name || "Untitled";
+          doc.text(displayName, pageWidth / 2, 28, { align: "center" });
+          
+          // Product code
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, 36, { align: "center" });
+          
+          // Collection
+          if (wp.subCategory?.name) {
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(120, 120, 120);
+            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, 42, { align: "center" });
+          }
+          
+          // ========== LOAD AND ADD WALLPAPER IMAGE ==========
+          if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
+            try {
+              console.log(`Loading image ${i + 1}: ${wp.imageUrl}`);
+              
+              // Load image with retry logic - CRITICAL
+              const img = await loadImageForPDF(wp.imageUrl);
+              
+              // Calculate dimensions
+              const maxWidth = pageWidth - 30;
+              const maxHeight = pageHeight - 100;
+              
+              let originalWidth = img.naturalWidth || img.width || 1200;
+              let originalHeight = img.naturalHeight || img.height || 900;
+              
+              let targetWidth = originalWidth;
+              let targetHeight = originalHeight;
+              
+              const widthRatio = maxWidth / targetWidth;
+              const heightRatio = maxHeight / targetHeight;
+              const scale = Math.min(widthRatio, heightRatio, 1);
+              
+              targetWidth = targetWidth * scale;
+              targetHeight = targetHeight * scale;
+              
+              // Render at higher resolution for clarity
+              const renderScale = 1.5;
+              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 1200);
+              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 1200);
+              
+              if (canvasWidth < 200) canvasWidth = 200;
+              if (canvasHeight < 200) canvasHeight = 200;
+              
+              // Convert to canvas
+              const canvas = document.createElement('canvas');
+              canvas.width = canvasWidth;
+              canvas.height = canvasHeight;
+              const ctx = canvas.getContext('2d');
+              
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+              
+              // Convert to data URL with good quality
+              const imageData = canvas.toDataURL('image/jpeg', 0.70);
+              
+              // Add image to PDF
+              const x = (pageWidth - targetWidth) / 2;
+              const y = 50;
+              doc.addImage(imageData, 'JPEG', x, y, targetWidth, targetHeight);
+              
+              console.log(`Image ${i + 1} added successfully`);
+              
+            } catch (imageError) {
+              console.error(`Error processing image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
+              
+              // Add placeholder text
+              doc.setFontSize(16);
+                doc.setFont("helvetica", "italic");
+                doc.setTextColor(150, 150, 150);
+              doc.text("Image Preview Not Available", pageWidth / 2, pageHeight / 2, { align: "center" });
+              doc.text("Please view online for full preview", pageWidth / 2, pageHeight / 2 + 10, { align: "center" });
+            }
+          } else {
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(150, 150, 150);
+            doc.text("No Image Available", pageWidth / 2, pageHeight / 2, { align: "center" });
+          }
+          
+          // Brand image at bottom left of every page (small)
+          if (brandImageData) {
+            try {
+              const smallBrandWidth = 20; // mm - small size
+              const smallBrandHeight = (smallBrandWidth * brandImg.height) / brandImg.width;
+              doc.addImage(brandImageData, 'PNG', 10, pageHeight - smallBrandHeight - 25, smallBrandWidth, smallBrandHeight);
+        } catch (err) {
+              console.warn('Failed to add brand image to page:', err);
+            }
+          }
+          
+          // Decorative bottom border
+          doc.setDrawColor(240, 240, 240);
+          doc.setLineWidth(0.3);
+          doc.line(20, pageHeight - 25, pageWidth - 20, pageHeight - 25);
+          
+          // Footer
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(150, 150, 150);
+          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
+          
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "italic");
+          doc.setTextColor(180, 180, 180);
+          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 8, { align: "center" });
+          
+        } catch (pageError) {
+          console.error(`Error on page ${i + 1}:`, pageError);
+          
+          doc.setFontSize(14);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(200, 0, 0);
+          doc.text(`Error loading wallpaper: ${wp.name || wp.productCode}`, 10, 20);
+          doc.text("Continuing with remaining wallpapers...", 10, 30);
+        }
+      }
+      
+      // ========== SAVE PDF WITH 100% RELIABILITY ==========
+      console.log('Saving PDF...');
+      const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
+      
+      let pdfSaved = false;
+      const pdfBlob = doc.output('blob');
+      const pdfSizeKB = (pdfBlob.size / 1024).toFixed(2);
+      
+      console.log(`PDF generated: ${fileName}, Size: ${pdfSizeKB} KB`);
+      
+      // Method 1: Standard save
+      try {
+        doc.save(fileName);
+        pdfSaved = true;
+        console.log("PDF downloaded successfully (method 1)");
+      } catch (saveError) {
+        console.warn("PDF save method 1 failed:", saveError);
+      }
+      
+      // Method 2: Blob download
+      if (!pdfSaved) {
+        try {
+          const url = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          }, 100);
+          
+          pdfSaved = true;
+          console.log("PDF downloaded successfully (method 2)");
+        } catch (blobError) {
+          console.error("PDF blob download failed:", blobError);
+        }
+      }
+      
+      // Method 3: Data URL fallback
+      if (!pdfSaved) {
+        try {
+          const pdfDataUrl = doc.output('dataurlstring');
+          const link = document.createElement('a');
+          link.href = pdfDataUrl;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(link);
+          }, 100);
+          
+          console.log("PDF downloaded successfully (method 3)");
+        } catch (dataUrlError) {
+          console.error("All PDF download methods failed:", dataUrlError);
+          throw new Error("Failed to download PDF. Please try again.");
+        }
+      }
+      
+      console.log(`PDF generation complete! File size: ${pdfSizeKB} KB`);
+      alert(`PDF "${fileName}" downloaded successfully! (${pdfSizeKB} KB)`);
+      
     } catch (error) {
-      console.error("PDF generation error:", error);
-      alert(`Failed to generate brochure: ${error.message || "Please try again."}`);
+      console.error("PDF generation failed:", error);
+      alert(`Failed to generate PDF: ${error.message || "Please try again."}`);
     } finally {
       setIsGeneratingPDF(false);
     }
