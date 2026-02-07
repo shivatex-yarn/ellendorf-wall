@@ -162,9 +162,9 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-40 w-64 h-screen transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } sm:translate-x-0 bg-gradient-to-b from-gray-900 to-gray-800 shadow-xl`}
+        className={`fixed top-0 left-0 z-50 w-64 h-screen transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
+        } bg-gradient-to-b from-gray-900 to-gray-800 shadow-xl`}
       >
         <div className="h-full px-3 py-4 overflow-y-auto flex flex-col">
           {/* Header */}
