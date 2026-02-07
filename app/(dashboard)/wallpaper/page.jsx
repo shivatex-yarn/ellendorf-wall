@@ -67,6 +67,14 @@ export default function Wallpaper() {
   ];
 
   useEffect(() => {
+    // Preload brand image immediately
+    const brandLink = document.createElement('link');
+    brandLink.rel = 'preload';
+    brandLink.as = 'image';
+    brandLink.href = '/assets/brand.png';
+    brandLink.fetchPriority = 'high';
+    document.head.appendChild(brandLink);
+
     const fetchWallpapers = async () => {
       setLoading(true);
       setError(null);
@@ -79,27 +87,52 @@ export default function Wallpaper() {
         const data = response.data;
         const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
         
-        // Set wallpapers immediately so UI can render
+        // Set wallpapers immediately so UI can render - DON'T WAIT FOR IMAGES
         setWallpapers(activeOnly);
+        setLoading(false); // Show UI immediately
         
-        // Aggressively preload ALL images during loading state
-        const imageUrls = activeOnly
+        // Preload only first visible batch (first 12 images) with high priority
+        const firstBatch = activeOnly
           .filter(w => w.imageUrl && w.imageUrl !== "/placeholder.jpg")
+          .slice(0, 12)
           .map(w => w.imageUrl);
         
-        setImageLoadProgress({ loaded: 0, total: imageUrls.length });
+        // Preload first batch immediately (non-blocking)
+        if (firstBatch.length > 0) {
+          preloadImagesBatch(firstBatch, 6, true).catch(err => {
+            console.warn('First batch preload warning:', err);
+          });
+        }
         
-        // Preload all images with progress tracking
-        await preloadAllImages(activeOnly, (loaded, total) => {
-          setImageLoadProgress({ loaded, total });
-        });
+        // Preload remaining images in background (non-blocking, lower priority)
+        const remainingImages = activeOnly
+          .filter(w => w.imageUrl && w.imageUrl !== "/placeholder.jpg")
+          .slice(12)
+          .map(w => w.imageUrl);
         
-        console.log(`Successfully preloaded ${imageUrls.length} images`);
+        if (remainingImages.length > 0) {
+          // Use requestIdleCallback to load remaining images when browser is idle
+          if ('requestIdleCallback' in window) {
+            requestIdleCallback(() => {
+              preloadImagesBatch(remainingImages, 4, false).catch(err => {
+                console.warn('Background preload warning:', err);
+              });
+            }, { timeout: 2000 });
+          } else {
+            // Fallback: load after a short delay
+            setTimeout(() => {
+              preloadImagesBatch(remainingImages, 4, false).catch(err => {
+                console.warn('Background preload warning:', err);
+              });
+            }, 1000);
+          }
+        }
+        
+        console.log(`Loaded ${activeOnly.length} wallpapers, preloading ${firstBatch.length} priority images`);
       } catch (err) {
         console.error('Error fetching wallpapers:', err);
         setError('Unable to load collection. Please try again.');
         setWallpapers([]);
-      } finally {
         setLoading(false);
       }
     };
@@ -868,7 +901,8 @@ export default function Wallpaper() {
                           src={wp.imageUrl}
                           alt={wp.name}
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          loading="lazy"
+                          loading={i < cardsPerPage ? "eager" : "lazy"}
+                          fetchPriority={i < cardsPerPage ? "high" : "low"}
                           onError={(e) => {
                             // Retry loading the image if it fails
                             const img = e.target;
@@ -974,7 +1008,8 @@ export default function Wallpaper() {
                             src={wp.imageUrl}
                             alt={wp.name}
                             className="w-full h-64 md:h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                            loading="lazy"
+                            loading={i < cardsPerPage ? "eager" : "lazy"}
+                            fetchPriority={i < cardsPerPage ? "high" : "low"}
                             onError={(e) => {
                               // Retry loading the image if it fails
                               const img = e.target;
@@ -1216,6 +1251,8 @@ export default function Wallpaper() {
                                      width={160}
                                      height={50}
                                      className="object-contain"
+                                     priority
+                                     loading="eager"
                                    />
                                  </div>
                 </div>
