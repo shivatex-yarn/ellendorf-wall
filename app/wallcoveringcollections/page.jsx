@@ -1589,45 +1589,67 @@ export default function EllendorfWallpaperApp() {
             doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, 40, { align: "center" });
           }
           
-          // **IMPORTANT: Try to add image WITHOUT watermarking first**
+          // **IMPORTANT: Add image with proper error handling and CORS support**
           if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
             try {
-              console.log(`Attempting to load image: ${wp.imageUrl.substring(0, 50)}...`);
+              console.log(`Processing image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
               
-              // Create a promise for image loading with timeout
-              const imagePromise = new Promise((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = "anonymous";
+              // Use native Image constructor - ensure we're using window.Image
+              const img = typeof window !== 'undefined' && window.Image 
+                ? new window.Image() 
+                : new Image();
+              img.crossOrigin = "anonymous";
+              
+              // Load image with proper error handling and CORS support
+              let objectUrl = null;
+              
+              try {
+                // Try fetch first for better CORS handling
+                const response = await fetch(wp.imageUrl, {
+                  mode: 'cors',
+                  credentials: 'omit',
+                  cache: 'force-cache'
+                });
                 
+                if (response.ok) {
+                  const blob = await response.blob();
+                  objectUrl = URL.createObjectURL(blob);
+                  img.src = objectUrl;
+                } else {
+                  // Fallback to direct URL
+                  img.src = wp.imageUrl;
+                }
+              } catch (fetchError) {
+                // Fallback to direct URL if fetch fails
+                img.src = wp.imageUrl;
+              }
+              
+              // Wait for image to load
+              await new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
+                  if (objectUrl) URL.revokeObjectURL(objectUrl);
                   reject(new Error("Image load timeout"));
-                }, 10000);
+                }, 20000);
                 
                 img.onload = () => {
                   clearTimeout(timeout);
-                  resolve(img);
+                  if (objectUrl) URL.revokeObjectURL(objectUrl);
+                  resolve();
                 };
                 
                 img.onerror = (error) => {
                   clearTimeout(timeout);
-                  reject(error);
+                  if (objectUrl) URL.revokeObjectURL(objectUrl);
+                  reject(new Error(`Failed to load image: ${wp.imageUrl}`));
                 };
-                
-                img.src = wp.imageUrl;
               });
               
-              // Wait for image to load
-              const img = await Promise.race([
-                imagePromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
-              ]);
-              
-              // Calculate dimensions
+              // Calculate dimensions - ensure we have valid dimensions
               const maxWidth = pageWidth - 40; // 20mm margins
-              const maxHeight = pageHeight - 80; // Leave space for text
+              const maxHeight = pageHeight - 120; // Leave space for text and footer
               
-              let width = img.width;
-              let height = img.height;
+              let width = img.naturalWidth || img.width || 800;
+              let height = img.naturalHeight || img.height || 600;
               
               // Scale down if too large
               if (width > maxWidth) {
@@ -1642,30 +1664,35 @@ export default function EllendorfWallpaperApp() {
                 width = width * scale;
               }
               
+              // Ensure minimum dimensions
+              if (width < 50) width = 50;
+              if (height < 50) height = 50;
+              
               // Center the image
               const x = (pageWidth - width) / 2;
               const y = 60; // Start below the text
               
-              // Add image to PDF
-              console.log(`Adding image to PDF at position ${x}, ${y}`);
-              
-              // Convert to data URL for jsPDF
+              // Convert to data URL for jsPDF with optimized compression
               const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
+              canvas.width = width;
+              canvas.height = height;
               const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0);
               
-              const imageData = canvas.toDataURL('image/jpeg', 0.7);
+              // Draw image to canvas
+              ctx.drawImage(img, 0, 0, width, height);
               
+              // Use optimized JPEG quality for smaller file size (KB range)
+              const imageData = canvas.toDataURL('image/jpeg', 0.55);
+              
+              // Add image to PDF
               doc.addImage(imageData, 'JPEG', x, y, width, height);
               
               console.log(`Image ${i + 1} added successfully`);
               
             } catch (imageError) {
-              console.warn(`Failed to add image ${i + 1}:`, imageError);
+              console.error(`Error processing image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
               
-              // Add placeholder text
+              // Add placeholder text instead of failing completely
               doc.setFontSize(16);
               doc.setFont("helvetica", "italic");
               doc.setTextColor(150, 150, 150);
