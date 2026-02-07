@@ -268,22 +268,61 @@ export default function Wallpaper() {
   useEffect(() => setCurrentPage(1), [selectedCategory, searchQuery, viewMode]);
 
   // Fixed watermark function with INCREASED text sizes and MINIMIZED white boxes
-  const applyEllendorfWatermark = (imageUrl) => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
+  const applyEllendorfWatermark = async (imageUrl) => {
+    let objectUrl = null;
+    
+    try {
+      // First, try to fetch the image as a blob for better CORS handling
+      let imageSrc = imageUrl;
       
-      // Add CORS handling
-      img.crossOrigin = "Anonymous";
-      
-      // Create a proxy URL if needed (for external images)
-      let src = imageUrl;
-      if (!imageUrl.includes('data:image') && !imageUrl.startsWith('blob:')) {
-        src = imageUrl + '?t=' + new Date().getTime(); // Cache busting
+      // If it's already a blob or data URL, use it directly
+      if (imageSrc.startsWith('blob:') || imageSrc.startsWith('data:')) {
+        imageSrc = imageUrl;
+      } else {
+        // Try to fetch as blob for better CORS compatibility
+        try {
+          const response = await fetch(imageSrc, {
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'force-cache'
+          });
+          
+          if (response.ok) {
+            const blob = await response.blob();
+            objectUrl = URL.createObjectURL(blob);
+            imageSrc = objectUrl;
+          }
+        } catch (fetchError) {
+          console.warn('Fetch failed, trying direct load:', fetchError);
+          // Will fall through to direct image load
+        }
       }
       
-      img.src = src;
+      // Create image element and load
+      const img = new Image();
+      img.crossOrigin = "anonymous";
       
-      img.onload = function() {
+      // Load image
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Image load timeout"));
+        }, 30000);
+        
+        img.onload = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        
+        img.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error("Failed to load image"));
+        };
+        
+        img.src = imageSrc;
+      });
+      
+      // Process watermark
+      return new Promise((resolve, reject) => {
         try {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
@@ -440,19 +479,31 @@ export default function Wallpaper() {
           
           // Convert to data URL with high quality
           const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95);
+          
+          // Clean up blob URL if we created one
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
+          
           resolve(watermarkedImage);
           
         } catch (error) {
+          // Clean up blob URL on error
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
           console.error("Error in watermark processing:", error);
           reject(error);
         }
-      };
-      
-      img.onerror = function() {
-        console.error("Failed to load image for watermarking:", imageUrl);
-        reject(new Error("Failed to load image"));
-      };
-    });
+      });
+    } catch (error) {
+      // Clean up blob URL on error
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      console.error("Failed to load image for watermarking:", imageUrl, error);
+      throw error;
+    }
   };
 
   const handleFullViewWithWatermark = async (wallpaper) => {
