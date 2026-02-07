@@ -23,23 +23,6 @@ import {
 } from 'lucide-react';
 import Image from "next/image";
 
-// Temporary auth mock - replace with actual import when available
-const useAuth = () => ({ 
-  user: null, 
-  isAuthenticated: false,
-  isSuperadmin: false,
-  isAdmin: false,
-  canViewAllBranches: () => false,
-  getCurrentBranchId: () => null,
-  isAdminOrHigher: () => false,
-  login: () => {},
-  logout: () => {},
-  loadingUser: false
-});
-
-// Import image loading utilities
-import { preloadAllImages, preloadImagesBatch, imageCache } from '@/lib/imageLoader';
-
 export default function Wallpaper() {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -70,7 +53,29 @@ export default function Wallpaper() {
   const searchTimeoutRef = useRef(null);
   const resetPageTimeoutRef = useRef(null);
 
-  // Reset current page when filters change - using setTimeout to avoid synchronous updates
+  // Simple image preloading function (replacement for imageLoader)
+  const preloadImage = (url) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(url);
+      img.onerror = () => resolve(url); // Resolve even on error to not block
+      img.src = url;
+    });
+  };
+
+  // Simple batch preload function
+  const preloadImagesSimple = async (urls, batchSize = 6) => {
+    const batches = [];
+    for (let i = 0; i < urls.length; i += batchSize) {
+      batches.push(urls.slice(i, i + batchSize));
+    }
+    
+    for (const batch of batches) {
+      await Promise.allSettled(batch.map(preloadImage));
+    }
+  };
+
+  // Reset current page when filters change
   useEffect(() => {
     if (resetPageTimeoutRef.current) {
       clearTimeout(resetPageTimeoutRef.current);
@@ -108,7 +113,7 @@ export default function Wallpaper() {
         const data = response.data;
         const activeOnly = Array.isArray(data) ? data.filter(w => w.status === 'active') : [];
         
-        // Set wallpapers immediately so UI can render - DON'T WAIT FOR IMAGES
+        // Set wallpapers immediately so UI can render
         setWallpapers(activeOnly);
         
         // Use setTimeout to avoid synchronous state update cascading
@@ -124,7 +129,7 @@ export default function Wallpaper() {
         
         // Preload first batch immediately (non-blocking)
         if (firstBatch.length > 0) {
-          preloadImagesBatch(firstBatch, 6, true).catch(err => {
+          preloadImagesSimple(firstBatch, 6).catch(err => {
             console.warn('First batch preload warning:', err);
           });
         }
@@ -136,21 +141,12 @@ export default function Wallpaper() {
           .map(w => w.imageUrl);
         
         if (remainingImages.length > 0) {
-          // Use requestIdleCallback to load remaining images when browser is idle
-          if ('requestIdleCallback' in window) {
-            requestIdleCallback(() => {
-              preloadImagesBatch(remainingImages, 4, false).catch(err => {
-                console.warn('Background preload warning:', err);
-              });
-            }, { timeout: 2000 });
-          } else {
-            // Fallback: load after a short delay
-            setTimeout(() => {
-              preloadImagesBatch(remainingImages, 4, false).catch(err => {
-                console.warn('Background preload warning:', err);
-              });
-            }, 1000);
-          }
+          // Load after a short delay
+          setTimeout(() => {
+            preloadImagesSimple(remainingImages, 4).catch(err => {
+              console.warn('Background preload warning:', err);
+            });
+          }, 1000);
         }
         
         console.log(`Loaded ${activeOnly.length} wallpapers, preloading ${firstBatch.length} priority images`);
@@ -306,13 +302,10 @@ export default function Wallpaper() {
     currentPage * cardsPerPage
   );
 
-  // Fixed watermark function
-  const applyEllendorfWatermark = async (imageUrl) => {
+  // SIMPLIFIED watermark function - minimal and reliable
+  const applyEllendorfWatermark = (wallpaper) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      
-      // For S3 URLs, we need to handle CORS carefully
-      img.crossOrigin = "anonymous";
       
       img.onload = () => {
         try {
@@ -326,151 +319,64 @@ export default function Wallpaper() {
           // Draw original image
           ctx.drawImage(img, 0, 0, img.width, img.height);
           
-          // INCREASED FONT SIZES with MINIMIZED boxes
-          const STANDARD_FONT_SIZES = {
-            mainBrand: 88,
-            subBrand: 44,
-            premiumCollection: 36,
-            footer: 32,
-            productInfo: 40
-          };
-          
-          const STANDARD_FOOTER = {
-            marginBottom: 50,
-            height: 50
-          };
+          // Calculate font sizes based on image dimensions
+          const baseFontSize = Math.min(canvas.width, canvas.height) * 0.04;
           
           // ========== CENTER WATERMARK ==========
           ctx.save();
           const centerX = canvas.width / 2;
           const centerY = canvas.height / 2;
-          const boxWidth = canvas.width * 0.7;
-          const boxHeight = canvas.height * 0.2;
-          
-          // MINIMIZED transparent background box
-          ctx.globalAlpha = 0.25;
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(
-            centerX - boxWidth/2, 
-            centerY - boxHeight/2, 
-            boxWidth, 
-            boxHeight
-          );
           
           // Main brand text
-          ctx.globalAlpha = 0.95;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.mainBrand}px 'Times New Roman', serif`;
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = `bold ${baseFontSize * 2}px 'Times New Roman', serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-
-          // Subtle shadow for depth
-          ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+          
+          // Add text shadow for better visibility
+          ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
           ctx.shadowBlur = 10;
-          ctx.shadowOffsetY = 4;
-
+          ctx.shadowOffsetX = 2;
+          ctx.shadowOffsetY = 2;
+          
           // Brand text
-          ctx.fillText(
-            "ELLENDORF – Textile Wall Coverings",
-            centerX,
-            centerY - (boxHeight * 0.18)
-          );
-
-          // Reset shadow
-          ctx.shadowColor = "transparent";
-          ctx.shadowBlur = 0;
-
-          // Decorative luxury divider
-          ctx.globalAlpha = 0.5;
-          ctx.strokeStyle = "rgba(0,0,0,0.7)";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(centerX - boxWidth * 0.25, centerY + (boxHeight * 0.08));
-          ctx.lineTo(centerX + boxWidth * 0.25, centerY + (boxHeight * 0.08));
-          ctx.stroke();
-
-          // Sub branding
-          ctx.font = `italic ${STANDARD_FONT_SIZES.subBrand}px 'Times New Roman', serif`;
-          ctx.fillText("Textile Wall Coverings", centerX, centerY + (boxHeight * 0.02));
-          
-          // Premium Collection text
-          ctx.font = `italic ${STANDARD_FONT_SIZES.premiumCollection}px 'Times New Roman', serif`;
-          ctx.fillText("Premium Collection", centerX, centerY + (boxHeight * 0.15));
+          ctx.fillText("ELLENDORF", centerX, centerY - baseFontSize);
+          ctx.fillText("Premium Collection", centerX, centerY);
+          ctx.fillText("Textile Wall Coverings", centerX, centerY + baseFontSize);
           
           ctx.restore();
           
-          // ========== STANDARD FOOTER ==========
+          // ========== PRODUCT INFO ==========
           ctx.save();
-          const footerY = canvas.height - STANDARD_FOOTER.marginBottom;
-          const footerWidth = canvas.width * 0.75;
+          const productCode = wallpaper.productCode || "ELL-001";
+          const collectionName = wallpaper.subCategory?.name || wallpaper.category?.name || "Premium";
           
-          // MINIMIZED Footer background
-          ctx.globalAlpha = 0.06;
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(
-            centerX - footerWidth/2,
-            footerY - (STANDARD_FOOTER.height/2),
-            footerWidth,
-            STANDARD_FOOTER.height
-          );
-          
-          // Footer text
-          ctx.globalAlpha = 0.85;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
-          ctx.font = `italic ${STANDARD_FONT_SIZES.footer}px 'Times New Roman', serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(
-            "ELLENDORF Textile Wall Coverings - Premium Collection",
-            centerX,
-            footerY
-          );
-          ctx.restore();
-          
-          // ========== TOP CORNER WATERMARKS ==========
-          ctx.save();
-          const topLeftX = 40;
-          const topLeftY = 40;
-          const topRightX = canvas.width - 40;
-          
-          // Product Code at top-left
-          ctx.globalAlpha = 0.95;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
+          // Top-left: Product Code
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = `bold ${baseFontSize * 0.8}px 'Arial', sans-serif`;
           ctx.textAlign = "left";
           ctx.textBaseline = "top";
-          ctx.fillText("CV019", topLeftX, topLeftY);
+          ctx.fillText(`Code: ${productCode}`, 20, 20);
           
-          // "Product Code:" label
-          ctx.font = `italic 24px 'Times New Roman', serif`;
-          ctx.fillText("Product Code:", topLeftX, topLeftY + 50);
-          
-          // Collection at top-right
+          // Top-right: Collection
           ctx.textAlign = "right";
-          ctx.font = `bold ${STANDARD_FONT_SIZES.productInfo}px 'Arial', sans-serif`;
-          ctx.fillText("City View(CV)", topRightX, topLeftY);
+          ctx.fillText(`Collection: ${collectionName}`, canvas.width - 20, 20);
           
-          // "Collection:" label
-          ctx.font = `italic 24px 'Times New Roman', serif`;
-          ctx.fillText("Collection:", topRightX, topLeftY + 50);
-          
-          ctx.restore();
-          
-          // ========== BOTTOM-LEFT CORNER for additional branding ==========
-          ctx.save();
-          const bottomLeftX = 40;
-          const bottomLeftY = canvas.height - 60;
-          
-          ctx.globalAlpha = 0.7;
-          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-          ctx.font = `italic 28px 'Times New Roman', serif`;
+          // Bottom-left: Brand
           ctx.textAlign = "left";
           ctx.textBaseline = "bottom";
-          ctx.fillText("Luxury Textile Collection", bottomLeftX, bottomLeftY);
+          ctx.fillText("ELLENDORF Textile Wall Coverings", 20, canvas.height - 20);
+          
+          // Bottom-right: Website/Contact
+          ctx.textAlign = "right";
+          ctx.fillText("www.ellendorf.com", canvas.width - 20, canvas.height - 20);
+          
           ctx.restore();
           
           // Convert to data URL
-          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95);
+          const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
           resolve(watermarkedImage);
           
         } catch (error) {
@@ -480,15 +386,15 @@ export default function Wallpaper() {
       };
       
       img.onerror = (error) => {
-        console.error("Failed to load image:", imageUrl, error);
+        console.error("Failed to load image:", wallpaper.imageUrl, error);
         reject(new Error("Failed to load image for watermarking"));
       };
       
       // Add timestamp to prevent caching issues
       const timestamp = Date.now();
-      const urlWithCacheBuster = imageUrl.includes('?') 
-        ? `${imageUrl}&t=${timestamp}`
-        : `${imageUrl}?t=${timestamp}`;
+      const urlWithCacheBuster = wallpaper.imageUrl.includes('?') 
+        ? `${wallpaper.imageUrl}&t=${timestamp}`
+        : `${wallpaper.imageUrl}?t=${timestamp}`;
       
       img.src = urlWithCacheBuster;
       
@@ -504,10 +410,52 @@ export default function Wallpaper() {
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
             
-            // Apply same watermark logic as above (omitted for brevity)
-            // ... [same watermark drawing code as above]
+            // Apply same watermark logic as above
+            const baseFontSize = Math.min(canvas.width, canvas.height) * 0.04;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const productCode = wallpaper.productCode || "ELL-001";
+            const collectionName = wallpaper.subCategory?.name || wallpaper.category?.name || "Premium";
             
-            const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95);
+            // Center watermark
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.font = `bold ${baseFontSize * 2}px 'Times New Roman', serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            
+            ctx.fillText("ELLENDORF", centerX, centerY - baseFontSize);
+            ctx.fillText("Premium Collection", centerX, centerY);
+            ctx.fillText("Textile Wall Coverings", centerX, centerY + baseFontSize);
+            
+            // Product info
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.font = `bold ${baseFontSize * 0.8}px 'Arial', sans-serif`;
+            
+            // Top-left
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+            ctx.fillText(`Code: ${productCode}`, 20, 20);
+            
+            // Top-right
+            ctx.textAlign = "right";
+            ctx.fillText(`Collection: ${collectionName}`, canvas.width - 20, 20);
+            
+            // Bottom-left
+            ctx.textAlign = "left";
+            ctx.textBaseline = "bottom";
+            ctx.fillText("ELLENDORF Textile Wall Coverings", 20, canvas.height - 20);
+            
+            // Bottom-right
+            ctx.textAlign = "right";
+            ctx.fillText("www.ellendorf.com", canvas.width - 20, canvas.height - 20);
+            
+            const watermarkedImage = canvas.toDataURL('image/jpeg', 0.9);
             resolve(watermarkedImage);
           } catch (error) {
             reject(error);
@@ -574,8 +522,7 @@ export default function Wallpaper() {
             <div class="loading-container">
               <div class="spinner"></div>
               <h2>Applying Ellendorf Watermark</h2>
-              <p>Processing high-quality preview...</p>
-              <p style="font-size: 14px; color: #9ca3af;">This may take a moment for large images</p>
+              <p>Processing image with watermark...</p>
             </div>
           </body>
           </html>
@@ -584,7 +531,7 @@ export default function Wallpaper() {
       }
       
       // Apply watermark
-      const watermarkedImage = await applyEllendorfWatermark(wallpaper.imageUrl);
+      const watermarkedImage = await applyEllendorfWatermark(wallpaper);
       
       // Close loading window
       if (loadingWindow) {
@@ -600,55 +547,66 @@ export default function Wallpaper() {
           <head>
             <title>${wallpaper.name} - ELLENDORF Wall Coverings</title>
             <style>
-              body {
+              * {
                 margin: 0;
                 padding: 0;
+                box-sizing: border-box;
+              }
+              body {
                 background: #000;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 min-height: 100vh;
                 overflow: hidden;
-                cursor: pointer;
+                font-family: Arial, sans-serif;
               }
-              .image-container {
+              .container {
                 width: 100vw;
                 height: 100vh;
+                position: relative;
                 display: flex;
                 align-items: center;
                 justify-content: center;
               }
-              img {
+              .watermarked-image {
                 max-width: 100%;
                 max-height: 100%;
                 object-fit: contain;
+                cursor: pointer;
               }
-              .hint {
-                position: fixed;
-                bottom: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(0,0,0,0.7);
+              .info-overlay {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                text-align: center;
+                padding: 15px;
+                background: rgba(0,0,0,0.8);
                 color: white;
-                padding: 10px 20px;
-                border-radius: 20px;
                 font-size: 14px;
-                opacity: 0;
-                animation: fadeIn 2s ease-in-out 1s forwards;
               }
-              @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
+              .info-overlay p {
+                margin: 5px 0;
+              }
+              .highlight {
+                color: #ffd700;
+                font-weight: bold;
               }
             </style>
           </head>
           <body>
-            <div class="image-container">
-              <img src="${watermarkedImage}" alt="${wallpaper.name}" 
-                   onclick="window.print();" 
+            <div class="container">
+              <img src="${watermarkedImage}" alt="${wallpaper.name}" class="watermarked-image" 
+                   onclick="window.print()" 
                    title="Click to print or right-click to save" />
+              <div class="info-overlay">
+                <p>Product: <span class="highlight">${wallpaper.name}</span></p>
+                <p>Code: <span class="highlight">${wallpaper.productCode || 'ELL-001'}</span></p>
+                <p>Collection: <span class="highlight">${wallpaper.subCategory?.name || wallpaper.category?.name || 'Premium Collection'}</span></p>
+                <p>Click image to print • Right-click to save image</p>
+              </div>
             </div>
-            <div class="hint">Click image to print • Right-click to save</div>
             <script>
               window.focus();
               
@@ -659,14 +617,16 @@ export default function Wallpaper() {
                 }
               });
               
-              // Auto-hide hint after 5 seconds
-              setTimeout(function() {
-                const hint = document.querySelector('.hint');
-                if (hint) {
-                  hint.style.opacity = '0';
-                  setTimeout(() => hint.remove(), 1000);
-                }
-              }, 5000);
+              // Print on click
+              document.querySelector('.watermarked-image').addEventListener('click', function() {
+                window.print();
+              });
+              
+              // Right-click instructions
+              document.querySelector('.watermarked-image').addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                alert('To save this watermarked image:\\n1. Right-click the image\\n2. Select "Save Image As..."\\n3. Choose your download location');
+              });
             </script>
           </body>
           </html>
@@ -679,55 +639,100 @@ export default function Wallpaper() {
       console.error("Error in full view with watermark:", error);
       setIsGeneratingPDF(false);
       
-      // Fallback: open original image in new tab
+      // Fallback: open original image in new tab with CSS watermark
       const fallbackWindow = window.open('', '_blank');
       if (fallbackWindow) {
         fallbackWindow.document.write(`
           <!DOCTYPE html>
           <html>
           <head>
-            <title>${wallpaper.name} - Original Image</title>
+            <title>${wallpaper.name} - ELLENDORF Wall Coverings</title>
             <style>
               body { 
                 margin: 0; 
-                padding: 20px; 
-                background: #f0f0f0; 
-                text-align: center; 
+                padding: 0; 
+                background: #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
                 font-family: Arial, sans-serif;
               }
+              .container {
+                position: relative;
+                max-width: 90vw;
+                max-height: 85vh;
+              }
               img { 
-                max-width: 90vw; 
-                max-height: 85vh; 
-                margin: 20px auto;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
               }
-              .message { 
-                background: #ffebee; 
-                padding: 20px; 
-                margin: 20px auto; 
-                max-width: 600px;
-                border-radius: 10px;
-                color: #c62828;
+              .watermark-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 2;
               }
-              .note {
-                background: #e3f2fd;
-                padding: 15px;
-                margin: 15px auto;
-                max-width: 600px;
+              .watermark-center {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                text-align: center;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 40px;
+                font-weight: bold;
+                font-family: 'Times New Roman', serif;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+                white-space: nowrap;
+              }
+              .watermark-center div {
+                margin: 10px 0;
+              }
+              .info-box {
+                position: absolute;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 15px 25px;
                 border-radius: 10px;
-                color: #1565c0;
+                text-align: center;
+                min-width: 300px;
+                z-index: 3;
+              }
+              .info-title {
+                font-size: 16px;
+                font-weight: bold;
+                margin-bottom: 8px;
+                color: #ffd700;
               }
             </style>
           </head>
           <body>
-            <div class="message">
-              <h3>Watermark Preview Unavailable</h3>
-              <p>Showing original image instead. The image source doesn't allow cross-origin access for watermarking.</p>
+            <div class="container">
+              <img src="${wallpaper.imageUrl}" alt="${wallpaper.name}" />
+              <div class="watermark-overlay">
+                <div class="watermark-center">
+                  <div>ELLENDORF</div>
+                  <div>Premium Collection</div>
+                  <div>Textile Wall Coverings</div>
+                </div>
+              </div>
+              <div class="info-box">
+                <div class="info-title">${wallpaper.name}</div>
+                <div>Product Code: ${wallpaper.productCode || 'ELL-001'}</div>
+                <div>Collection: ${wallpaper.subCategory?.name || wallpaper.category?.name || 'Premium Collection'}</div>
+                <div style="font-size: 12px; margin-top: 8px; color: #ccc;">
+                  Right-click image and select "Save Image As..." to download
+                </div>
+              </div>
             </div>
-            <div class="note">
-              <p><strong>Note:</strong> You can still save this image by right-clicking and selecting "Save Image As..."</p>
-            </div>
-            <img src="${wallpaper.imageUrl}" alt="${wallpaper.name}" />
           </body>
           </html>
         `);
@@ -1069,7 +1074,6 @@ export default function Wallpaper() {
         <div className="container mx-auto px-6">
           <div className="mb-12 text-center">
             <p className="text-slate-600">
-              {/* Showing <span className="font-semibold text-blue-600">{filteredWallpapers.length}</span> designs */}
               {selectedCategory !== 'All' && (
                 <span className="ml-2">
                   in <span className="font-semibold text-indigo-600">{selectedCategory}</span>
@@ -1113,7 +1117,6 @@ export default function Wallpaper() {
                           alt={wp.name}
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                           loading={i < cardsPerPage ? "eager" : "lazy"}
-                          fetchPriority={i < cardsPerPage ? "high" : "low"}
                           onError={(e) => {
                             // Retry loading the image if it fails
                             const img = e.target;
@@ -1220,7 +1223,6 @@ export default function Wallpaper() {
                             alt={wp.name}
                             className="w-full h-64 md:h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             loading={i < cardsPerPage ? "eager" : "lazy"}
-                            fetchPriority={i < cardsPerPage ? "high" : "low"}
                             onError={(e) => {
                               // Retry loading the image if it fails
                               const img = e.target;
@@ -1479,9 +1481,6 @@ export default function Wallpaper() {
             </div>
             
             <div className="flex flex-col items-center md:items-end space-y-2">
-              {/* <p className="text-sm text-slate-500">
-                Showing {filteredWallpapers.length} of {wallpapers.length} designs
-              </p> */}
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"

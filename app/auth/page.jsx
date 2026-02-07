@@ -311,7 +311,9 @@ export default function Auth() {
               </form>
 
               <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-500">© 2026 Reimagine Textile Wall Coverings. All rights reserved.</p>
+              <p className="text-sm text-slate-400">
+              © {new Date().getFullYear()} Ellendorf. All rights reserved.
+              </p>
               </div>
             </CardContent>
           </Card>
