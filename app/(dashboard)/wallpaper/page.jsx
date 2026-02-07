@@ -53,10 +53,10 @@ export default function Wallpaper() {
   const searchTimeoutRef = useRef(null);
   const resetPageTimeoutRef = useRef(null);
 
-  // Simple image preloading function
+  // Simple image preloading function - USE window.Image to avoid conflict
   const preloadImage = (url) => {
     return new Promise((resolve) => {
-      const img = new Image();
+      const img = new window.Image(); // Use window.Image
       img.onload = () => resolve(url);
       img.onerror = () => resolve(url);
       img.src = url;
@@ -300,465 +300,481 @@ export default function Wallpaper() {
   );
 
   // LUXURY WATERMARK function with footer - only selected image loads
-  // LUXURY WATERMARK function with footer - only selected image loads
-const applyEllendorfWatermark = async (wallpaper) => {
-  console.log(`Applying watermark to single image: ${wallpaper.name}`);
-  
-  try {
-    // Create a new Image object
-    const img = new Image();
-    img.crossOrigin = "anonymous";
+  const applyEllendorfWatermark = async (wallpaper) => {
+    console.log(`Applying watermark to single image: ${wallpaper.name}`);
     
-    // Create a promise to handle image loading
-    const imageLoaded = new Promise((resolve, reject) => {
-      img.onload = () => {
-        console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
-        resolve();
-      };
+    try {
+      // Create a new Image object - ALWAYS use window.Image to avoid conflict with next/image
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
       
-      img.onerror = (err) => {
-        console.error('Failed to load image:', err);
-        reject(new Error('Failed to load image'));
-      };
+      // Create a promise to handle image loading
+      const imageLoaded = new Promise((resolve, reject) => {
+        img.onload = () => {
+          console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+          resolve(img);
+        };
+        
+        img.onerror = (err) => {
+          console.error('Failed to load image:', err);
+          reject(new Error('Failed to load image'));
+        };
+        
+        // Set timeout for image loading
+        const timeoutId = setTimeout(() => {
+          if (!img.complete) {
+            reject(new Error('Image load timeout'));
+          }
+        }, 30000);
+        
+        // Clear timeout on load/error
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          resolve(img);
+        };
+        
+        img.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error('Failed to load image'));
+        };
+      });
       
-      // Set timeout for image loading
-      setTimeout(() => {
-        if (!img.complete) {
-          reject(new Error('Image load timeout'));
-        }
-      }, 15000);
-    });
-    
-    // Set image source - FORCE FRESH LOAD with timestamp
-    img.src = wallpaper.imageUrl + (wallpaper.imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
-    
-    // Wait for image to load
-    await imageLoaded;
-    
-    // Create canvas
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Set canvas dimensions
-    canvas.width = img.width;
-    canvas.height = img.height;
-    
-    // Draw original image
-    ctx.drawImage(img, 0, 0, img.width, img.height);
-    
-    // Calculate font sizes - VERY SMALL for footer
-    const baseFontSize = Math.min(canvas.width, canvas.height) * 0.008; // Very small
-    const footerFontSize = Math.min(canvas.width, canvas.height) * 0.006; // Even smaller for footer
-    
-    // Get wallpaper data
-    const productCode = wallpaper.productCode || "ELL-001";
-    const collectionName = wallpaper.subCategory?.name || wallpaper.category?.name || "Collection";
-    const wallpaperTitle = wallpaper.name || "Wall Covering";
-    
-    // ========== LUXURY CENTER WATERMARK ==========
-    ctx.save();
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    
-    // Main brand text - elegant and subtle
-    ctx.globalAlpha = 0.12; // Very subtle
-    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.font = `bold ${baseFontSize * 3}px 'Times New Roman', serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    
-    // Elegant shadow
-    ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-    
-    ctx.fillText("ELLENDORF", centerX, centerY);
-    ctx.restore();
-    
-    // ========== LUXURY FOOTER - VERY SMALL TEXT ==========
-    ctx.save();
-    
-    // Footer background (subtle gradient overlay at bottom)
-    const footerHeight = Math.max(60, canvas.height * 0.08);
-    const gradient = ctx.createLinearGradient(0, canvas.height - footerHeight, 0, canvas.height);
-    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, canvas.height - footerHeight, canvas.width, footerHeight);
-    
-    // Footer text - VERY SMALL
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-    ctx.font = `${footerFontSize}px 'Times New Roman', serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    
-    // Text shadow for readability
-    ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetX = 1;
-    ctx.shadowOffsetY = 1;
-    
-    // Footer content - centered, very small
-    const footerY = canvas.height - 8;
-    const lineHeight = footerFontSize * 1.8;
-    
-    // Line 1: Title (wallpaper name)
-    ctx.font = `italic ${footerFontSize * 1.1}px 'Times New Roman', serif`;
-    const maxTitleWidth = canvas.width - 40;
-    let displayTitle = wallpaperTitle;
-    if (ctx.measureText(displayTitle).width > maxTitleWidth) {
-      // Truncate if too long
-      while (ctx.measureText(displayTitle + '...').width > maxTitleWidth && displayTitle.length > 0) {
-        displayTitle = displayTitle.slice(0, -1);
+      // Set image source - FORCE FRESH LOAD with timestamp
+      const cacheBuster = wallpaper.imageUrl.includes('?') ? '&' : '?';
+      img.src = wallpaper.imageUrl + cacheBuster + 't=' + Date.now();
+      
+      // Wait for image to load
+      await imageLoaded;
+      
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        throw new Error('Could not get canvas context');
       }
-      displayTitle += '...';
+      
+      // Set canvas dimensions
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Draw original image
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      
+      // Calculate font sizes - VERY SMALL for footer
+      const baseFontSize = Math.min(canvas.width, canvas.height) * 0.008; // Very small
+      const footerFontSize = Math.min(canvas.width, canvas.height) * 0.006; // Even smaller for footer
+      
+      // Get wallpaper data
+      const productCode = wallpaper.productCode || "ELL-001";
+      const collectionName = wallpaper.subCategory?.name || wallpaper.category?.name || "Collection";
+      const wallpaperTitle = wallpaper.name || "Wall Covering";
+      
+      // ========== LUXURY CENTER WATERMARK ==========
+      ctx.save();
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      
+      // Main brand text - elegant and subtle
+      ctx.globalAlpha = 0.12; // Very subtle
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.font = `bold ${Math.max(baseFontSize * 3, 12)}px 'Times New Roman', serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      
+      // Elegant shadow
+      ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
+      
+      ctx.fillText("ELLENDORF", centerX, centerY);
+      ctx.restore();
+      
+      // ========== LUXURY FOOTER - VERY SMALL TEXT ==========
+      ctx.save();
+      
+      // Footer background (subtle gradient overlay at bottom)
+      const footerHeight = Math.max(60, canvas.height * 0.08);
+      const gradient = ctx.createLinearGradient(0, canvas.height - footerHeight, 0, canvas.height);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, canvas.height - footerHeight, canvas.width, footerHeight);
+      
+      // Footer text - VERY SMALL
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.font = `${Math.max(footerFontSize, 8)}px 'Times New Roman', serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      
+      // Text shadow for readability
+      ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+      
+      // Footer content - centered, very small
+      const footerY = canvas.height - 8;
+      const lineHeight = Math.max(footerFontSize * 1.8, 15);
+      
+      // Line 1: Title (wallpaper name)
+      ctx.font = `italic ${Math.max(footerFontSize * 1.1, 9)}px 'Times New Roman', serif`;
+      const maxTitleWidth = canvas.width - 40;
+      let displayTitle = wallpaperTitle;
+      if (ctx.measureText(displayTitle).width > maxTitleWidth) {
+        // Truncate if too long
+        while (ctx.measureText(displayTitle + '...').width > maxTitleWidth && displayTitle.length > 0) {
+          displayTitle = displayTitle.slice(0, -1);
+        }
+        displayTitle += '...';
+      }
+      ctx.fillText(displayTitle, canvas.width / 2, footerY - (lineHeight * 2));
+      
+      // Line 2: Collection name and Product Code (very small)
+      ctx.font = `${Math.max(footerFontSize, 8)}px 'Times New Roman', serif`;
+      ctx.fillText(`${collectionName} • Code: ${productCode}`, canvas.width / 2, footerY - lineHeight);
+      
+      // Line 3: Brand name (smallest)
+      ctx.font = `italic ${Math.max(footerFontSize * 0.9, 7)}px 'Times New Roman', serif`;
+      ctx.fillText("ELLENDORF Textile Wall Coverings", canvas.width / 2, footerY);
+      
+      ctx.restore();
+      
+      // Convert to data URL with high quality
+      console.log('Watermark applied, converting to data URL...');
+      const watermarkedImage = canvas.toDataURL('image/jpeg', 0.92);
+      console.log('Watermark processing complete');
+      
+      return watermarkedImage;
+      
+    } catch (error) {
+      console.error("Error in watermark processing:", error);
+      throw error;
     }
-    ctx.fillText(displayTitle, canvas.width / 2, footerY - (lineHeight * 2));
-    
-    // Line 2: Collection name and Product Code (very small)
-    ctx.font = `${footerFontSize}px 'Times New Roman', serif`;
-    ctx.fillText(`${collectionName} • Code: ${productCode}`, canvas.width / 2, footerY - lineHeight);
-    
-    // Line 3: Brand name (smallest)
-    ctx.font = `italic ${footerFontSize * 0.9}px 'Times New Roman', serif`;
-    ctx.fillText("ELLENDORF Textile Wall Coverings", canvas.width / 2, footerY);
-    
-    ctx.restore();
-    
-    // Convert to data URL with high quality
-    console.log('Watermark applied, converting to data URL...');
-    const watermarkedImage = canvas.toDataURL('image/jpeg', 0.92);
-    console.log('Watermark processing complete');
-    
-    return watermarkedImage;
-    
-  } catch (error) {
-    console.error("Error in watermark processing:", error);
-    throw error;
-  }
-};
+  };
 
-const handleFullViewWithWatermark = async (wallpaper) => {
-  console.log(`Opening full view with watermark for: ${wallpaper.name}`);
-  
-  try {
-    setIsGeneratingPDF(true);
+  const handleFullViewWithWatermark = async (wallpaper) => {
+    console.log(`Opening full view with watermark for: ${wallpaper.name}`);
     
-    // Show loading message
-    const loadingWindow = window.open('', '_blank');
-    if (loadingWindow) {
-      loadingWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Loading Watermark Preview - ELLENDORF</title>
-          <style>
-            body {
-              margin: 0;
-              padding: 0;
-              background: #000;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              min-height: 100vh;
-              font-family: 'Times New Roman', serif;
-              color: white;
-            }
-            .loading-container {
-              text-align: center;
-              padding: 40px;
-            }
-            .spinner {
-              width: 50px;
-              height: 50px;
-              border: 3px solid rgba(255, 255, 255, 0.2);
-              border-top: 3px solid white;
-              border-radius: 50%;
-              animation: spin 1s linear infinite;
-              margin: 0 auto 20px;
-            }
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-            h2 {
-              color: white;
-              margin-bottom: 10px;
-              font-weight: normal;
-              font-size: 20px;
-            }
-            p {
-              color: rgba(255, 255, 255, 0.7);
-              margin-bottom: 20px;
-              font-size: 14px;
-            }
-            .product-info {
-              background: rgba(255, 255, 255, 0.1);
-              padding: 15px;
-              border-radius: 10px;
-              margin-top: 20px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="loading-container">
-            <div class="spinner"></div>
-            <h2>ELLENDORF Luxury Wall Coverings</h2>
-            <p>Applying premium watermark to selected design...</p>
-            <div class="product-info">
-              <div>${wallpaper.name}</div>
-              <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
-                ${wallpaper.productCode} • ${wallpaper.subCategory?.name || 'Premium Collection'}
-              </div>
-            </div>
-          </div>
-        </body>
-        </html>
-      `);
-      loadingWindow.document.close();
-    }
-    
-    // Apply watermark - THIS ONLY PROCESSES THE SELECTED IMAGE
-    console.log('Starting watermark application...');
-    const watermarkedImage = await applyEllendorfWatermark(wallpaper);
-    console.log('Watermark application complete');
-    
-    // Close loading window
-    if (loadingWindow) {
-      loadingWindow.close();
-    }
-    
-    // Open watermarked image in new tab - LUXURY FULL SCREEN VIEW
-    // Only the selected image loads with watermark and footer
-    const previewWindow = window.open('', '_blank');
-    if (previewWindow) {
-      previewWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>${wallpaper.name} - ELLENDORF Luxury Wall Coverings</title>
-          <meta name="description" content="Premium watermarked preview of ${wallpaper.name} from ELLENDORF Textile Wall Coverings collection">
-          <style>
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            body {
-              background: #000;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              min-height: 100vh;
-              overflow: hidden;
-              font-family: 'Times New Roman', serif;
-            }
-            .container {
-              width: 100vw;
-              height: 100vh;
-              position: relative;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: #000;
-            }
-            .watermarked-image {
-              max-width: 95%;
-              max-height: 95%;
-              width: auto;
-              height: auto;
-              object-fit: contain;
-              cursor: zoom-in;
-              display: block;
-              opacity: 0;
-              transition: opacity 0.5s ease, transform 0.5s ease;
-            }
-            .watermarked-image.loaded {
-              opacity: 1;
-            }
-            .watermarked-image.zoomed {
-              transform: scale(1.5);
-              cursor: zoom-out;
-            }
-            .info-overlay {
-              position: absolute;
-              bottom: 0;
-              left: 0;
-              right: 0;
-              background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
-              padding: 20px;
-              color: white;
-              text-align: center;
-              font-size: 12px;
-              pointer-events: none;
-              opacity: 0;
-              transition: opacity 0.3s;
-            }
-            .container:hover .info-overlay {
-              opacity: 1;
-            }
-            .loading {
-              position: absolute;
-              top: 50%;
-              left: 50%;
-              transform: translate(-50%, -50%);
-              color: white;
-              font-size: 14px;
-              text-align: center;
-              opacity: 1;
-              transition: opacity 0.5s;
-            }
-            .loading.hidden {
-              opacity: 0;
-              pointer-events: none;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <img src="${watermarkedImage}" 
-                 alt="${wallpaper.name}" 
-                 class="watermarked-image" 
-                 onload="window.imageLoaded()"
-                 title="ELLENDORF Luxury Wall Covering - ${wallpaper.name}" />
-            <div class="loading" id="loadingElement">
-              <div style="margin-bottom: 10px;">Loading premium watermarked preview...</div>
-              <div style="font-size: 12px; opacity: 0.7;">${wallpaper.name}</div>
-            </div>
-            <div class="info-overlay">
-              <div>${wallpaper.name}</div>
-              <div style="font-size: 10px; margin-top: 5px; opacity: 0.8;">
-                ${wallpaper.subCategory?.name || 'Collection'} • ${wallpaper.productCode}
-              </div>
-            </div>
-          </div>
-          <script>
-            // Store watermark image data in window for debugging
-            window.watermarkedImageData = "${watermarkedImage.substring(0, 100)}...";
-            
-            window.imageLoaded = function() {
-              const img = document.querySelector('.watermarked-image');
-              const loading = document.getElementById('loadingElement');
-              
-              img.classList.add('loaded');
-              loading.classList.add('hidden');
-              
-              setTimeout(() => {
-                loading.style.display = 'none';
-              }, 500);
-            };
-            
-            // Initialize
-            window.onload = function() {
-              console.log('Watermarked preview loaded');
-              window.focus();
-            };
-            
-            // Close on Escape key
-            document.addEventListener('keydown', function(e) {
-              if (e.key === 'Escape') {
-                window.close();
+    try {
+      setIsGeneratingPDF(true);
+      
+      // Show loading message
+      const loadingWindow = window.open('', '_blank');
+      if (loadingWindow) {
+        loadingWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Loading Watermark Preview - ELLENDORF</title>
+            <style>
+              body {
+                margin: 0;
+                padding: 0;
+                background: #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                font-family: 'Times New Roman', serif;
+                color: white;
               }
-            });
-            
-            // Zoom on click
-            let isZoomed = false;
-            const imageElement = document.querySelector('.watermarked-image');
-            if (imageElement) {
-              imageElement.addEventListener('click', function() {
-                if (!isZoomed) {
-                  this.classList.add('zoomed');
-                  isZoomed = true;
-                } else {
-                  this.classList.remove('zoomed');
-                  isZoomed = false;
+              .loading-container {
+                text-align: center;
+                padding: 40px;
+              }
+              .spinner {
+                width: 50px;
+                height: 50px;
+                border: 3px solid rgba(255, 255, 255, 0.2);
+                border-top: 3px solid white;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+              h2 {
+                color: white;
+                margin-bottom: 10px;
+                font-weight: normal;
+                font-size: 20px;
+              }
+              p {
+                color: rgba(255, 255, 255, 0.7);
+                margin-bottom: 20px;
+                font-size: 14px;
+              }
+              .product-info {
+                background: rgba(255, 255, 255, 0.1);
+                padding: 15px;
+                border-radius: 10px;
+                margin-top: 20px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="loading-container">
+              <div class="spinner"></div>
+              <h2>ELLENDORF Luxury Wall Coverings</h2>
+              <p>Applying premium watermark to selected design...</p>
+              <div class="product-info">
+                <div>${wallpaper.name}</div>
+                <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
+                  ${wallpaper.productCode} • ${wallpaper.subCategory?.name || 'Premium Collection'}
+                </div>
+              </div>
+            </div>
+          </body>
+          </html>
+        `);
+        loadingWindow.document.close();
+      }
+      
+      // Apply watermark - THIS ONLY PROCESSES THE SELECTED IMAGE
+      console.log('Starting watermark application...');
+      const watermarkedImage = await applyEllendorfWatermark(wallpaper);
+      console.log('Watermark application complete');
+      
+      // Close loading window
+      if (loadingWindow) {
+        loadingWindow.close();
+      }
+      
+      // Open watermarked image in new tab - LUXURY FULL SCREEN VIEW
+      // Only the selected image loads with watermark and footer
+      const previewWindow = window.open('', '_blank');
+      if (previewWindow) {
+        previewWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>${wallpaper.name} - ELLENDORF Luxury Wall Coverings</title>
+            <meta name="description" content="Premium watermarked preview of ${wallpaper.name} from ELLENDORF Textile Wall Coverings collection">
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              body {
+                background: #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                overflow: hidden;
+                font-family: 'Times New Roman', serif;
+              }
+              .container {
+                width: 100vw;
+                height: 100vh;
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #000;
+              }
+              .watermarked-image {
+                max-width: 95%;
+                max-height: 95%;
+                width: auto;
+                height: auto;
+                object-fit: contain;
+                cursor: zoom-in;
+                display: block;
+                opacity: 0;
+                transition: opacity 0.5s ease, transform 0.5s ease;
+              }
+              .watermarked-image.loaded {
+                opacity: 1;
+              }
+              .watermarked-image.zoomed {
+                transform: scale(1.5);
+                cursor: zoom-out;
+              }
+              .info-overlay {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+                padding: 20px;
+                color: white;
+                text-align: center;
+                font-size: 12px;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.3s;
+              }
+              .container:hover .info-overlay {
+                opacity: 1;
+              }
+              .loading {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                color: white;
+                font-size: 14px;
+                text-align: center;
+                opacity: 1;
+                transition: opacity 0.5s;
+              }
+              .loading.hidden {
+                opacity: 0;
+                pointer-events: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <img src="${watermarkedImage}" 
+                   alt="${wallpaper.name}" 
+                   class="watermarked-image" 
+                   onload="window.imageLoaded()"
+                   title="ELLENDORF Luxury Wall Covering - ${wallpaper.name}" />
+              <div class="loading" id="loadingElement">
+                <div style="margin-bottom: 10px;">Loading premium watermarked preview...</div>
+                <div style="font-size: 12px; opacity: 0.7;">${wallpaper.name}</div>
+              </div>
+              <div class="info-overlay">
+                <div>${wallpaper.name}</div>
+                <div style="font-size: 10px; margin-top: 5px; opacity: 0.8;">
+                  ${wallpaper.subCategory?.name || 'Collection'} • ${wallpaper.productCode}
+                </div>
+              </div>
+            </div>
+            <script>
+              window.imageLoaded = function() {
+                const img = document.querySelector('.watermarked-image');
+                const loading = document.getElementById('loadingElement');
+                
+                if (img) {
+                  img.classList.add('loaded');
+                }
+                if (loading) {
+                  loading.classList.add('hidden');
+                  
+                  setTimeout(() => {
+                    loading.style.display = 'none';
+                  }, 500);
+                }
+              };
+              
+              // Initialize
+              window.onload = function() {
+                console.log('Watermarked preview loaded');
+                window.focus();
+              };
+              
+              // Close on Escape key
+              document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                  window.close();
                 }
               });
-            }
-            
-            // Right-click to save - allow default behavior
-            document.addEventListener('contextmenu', function(e) {
-              // Allow default right-click menu for saving
-              console.log('Right-click detected - image can be saved');
-            });
-          </script>
-        </body>
-        </html>
-      `);
-      previewWindow.document.close();
-    }
-    
-    setIsGeneratingPDF(false);
-  } catch (error) {
-    console.error("Error in full view with watermark:", error);
-    setIsGeneratingPDF(false);
-    
-    // Fallback: open original image in new tab with simple view
-    const fallbackWindow = window.open('', '_blank');
-    if (fallbackWindow) {
-      fallbackWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>${wallpaper.name} - ELLENDORF Wall Coverings</title>
-          <style>
-            body { 
-              margin: 0; 
-              padding: 0; 
-              background: #000;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              min-height: 100vh;
-              font-family: Arial, sans-serif;
-            }
-            .container {
-              position: relative;
-              max-width: 90vw;
-              max-height: 90vh;
-              text-align: center;
-            }
-            img { 
-              max-width: 100%;
-              max-height: 85vh;
-              object-fit: contain;
-            }
-            .info {
-              color: white;
-              margin-top: 15px;
-              font-size: 14px;
-            }
-            .error {
-              color: #ff6b6b;
-              background: rgba(255, 255, 255, 0.1);
-              padding: 20px;
-              border-radius: 10px;
-              margin: 20px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="error">
-              Watermark preview failed. Showing original image.
-            </div>
-            <img src="${wallpaper.imageUrl}" alt="${wallpaper.name}" />
-            <div class="info">
-              <div>${wallpaper.name}</div>
-              <div style="font-size: 12px; opacity: 0.7; margin-top: 5px;">
-                ${wallpaper.productCode} • ${wallpaper.subCategory?.name || 'Collection'}
+              
+              // Zoom on click
+              let isZoomed = false;
+              const imageElement = document.querySelector('.watermarked-image');
+              if (imageElement) {
+                imageElement.addEventListener('click', function() {
+                  if (!isZoomed) {
+                    this.classList.add('zoomed');
+                    isZoomed = true;
+                  } else {
+                    this.classList.remove('zoomed');
+                    isZoomed = false;
+                  }
+                });
+              }
+              
+              // Right-click to save - allow default behavior
+              document.addEventListener('contextmenu', function(e) {
+                // Allow default right-click menu for saving
+                console.log('Right-click detected - image can be saved');
+              });
+            </script>
+          </body>
+          </html>
+        `);
+        previewWindow.document.close();
+      }
+      
+      setIsGeneratingPDF(false);
+    } catch (error) {
+      console.error("Error in full view with watermark:", error);
+      setIsGeneratingPDF(false);
+      
+      // Fallback: open original image in new tab with simple view
+      const fallbackWindow = window.open('', '_blank');
+      if (fallbackWindow) {
+        fallbackWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>${wallpaper.name} - ELLENDORF Wall Coverings</title>
+            <style>
+              body { 
+                margin: 0; 
+                padding: 0; 
+                background: #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                font-family: Arial, sans-serif;
+              }
+              .container {
+                position: relative;
+                max-width: 90vw;
+                max-height: 90vh;
+                text-align: center;
+              }
+              img { 
+                max-width: 100%;
+                max-height: 85vh;
+                object-fit: contain;
+              }
+              .info {
+                color: white;
+                margin-top: 15px;
+                font-size: 14px;
+              }
+              .error {
+                color: #ff6b6b;
+                background: rgba(255, 255, 255, 0.1);
+                padding: 20px;
+                border-radius: 10px;
+                margin: 20px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="error">
+                Watermark preview failed. Showing original image.
+              </div>
+              <img src="${wallpaper.imageUrl}" alt="${wallpaper.name}" />
+              <div class="info">
+                <div>${wallpaper.name}</div>
+                <div style="font-size: 12px; opacity: 0.7; margin-top: 5px;">
+                  ${wallpaper.productCode} • ${wallpaper.subCategory?.name || 'Collection'}
+                </div>
               </div>
             </div>
-          </div>
-        </body>
-        </html>
-      `);
-      fallbackWindow.document.close();
+          </body>
+          </html>
+        `);
+        fallbackWindow.document.close();
+      }
     }
-  }
-};
+  };
 
   if (loading) {
     const progressPercent = imageLoadProgress.total > 0 
