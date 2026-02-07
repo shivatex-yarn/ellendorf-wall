@@ -1486,6 +1486,13 @@ export default function EllendorfWallpaperApp() {
       return;
     }
 
+    // Ensure we have selected images
+    if (!likedWallpapers || likedWallpapers.length === 0) {
+      alert("Please select at least one wallpaper to download");
+      setIsGeneratingPDF(false);
+      return;
+    }
+
     setIsGeneratingPDF(true);
 
     try {
@@ -2059,13 +2066,36 @@ export default function EllendorfWallpaperApp() {
         }
       }
 
+      // Ensure we have at least one page before saving
+      if (likedWallpapers.length === 0) {
+        throw new Error("No wallpapers selected");
+      }
+
       // Save the PDF with luxury name
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
-      doc.save(fileName);
+      
+      // Force save the PDF
+      try {
+        doc.save(fileName);
+        console.log("PDF downloaded successfully:", fileName);
+      } catch (saveError) {
+        console.error("PDF save error:", saveError);
+        // Try alternative save method
+        const pdfBlob = doc.output('blob');
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log("PDF downloaded successfully (alternative method):", fileName);
+      }
       
     } catch (error) {
       console.error("PDF generation error:", error);
-      alert("Failed to generate luxury brochure. Please try again.");
+      alert(`Failed to generate luxury brochure: ${error.message || "Please try again."}`);
     } finally {
       setIsGeneratingPDF(false);
     }

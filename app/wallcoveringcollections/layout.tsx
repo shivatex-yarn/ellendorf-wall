@@ -2,6 +2,7 @@
 
 import React from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import SidebarLayout from "../layout/sidebarlayout";
 
 export default function WallpaperCollectionLayout({
   children,
@@ -10,7 +11,7 @@ export default function WallpaperCollectionLayout({
 }) {
   return (
     <ProtectedRoute>
-      {children}
+      <SidebarLayout>{children}</SidebarLayout>
     </ProtectedRoute>
   );
 }

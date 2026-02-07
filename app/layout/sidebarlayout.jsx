@@ -5,9 +5,9 @@ import Sidebar from '../sidebar/page.jsx';
 
 export default function Layout({ children }) {
   return (
-    <div className="flex min-h-screen bg-gray-100">
+    <div className="flex min-h-screen bg-black">
       <Sidebar />
-      <main className="flex-1 ml-0 sm:ml-64 p-4 overflow-y-auto">{children}</main>
+      <main className="flex-1 ml-0 sm:ml-64 overflow-y-auto">{children}</main>
     </div>
   );
 }

@@ -1,281 +1,254 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect, useRef } from "react";
-import Image from "next/image";
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import {
+  Palette,
+  FileImage,
+  Package,
+  Sparkles,
+  LogOut,
+  Menu,
+  X,
+  AlertCircle,
+  Shield,
+  User,
+} from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { useAuth } from '../layout/authcontent';
 
-// Default blur placeholder (tiny gradient)
-const DEFAULT_BLUR =
-  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//9k=";
+const sidebarSections = [
+  {
+    title: 'Textile Wall Covering Gallery',
+    items: [
+      { name: 'Gallery', path: '/wallpaper', icon: Palette },
+    ],
+  },
+  {
+    title: 'Textile Wall Covering Collections',
+    items: [
+      { name: 'Collections', path: '/wallcoveringcollections', icon: FileImage },
+    ],
+  },
+  {
+    title: 'Recent Installation',
+    items: [
+      { name: 'Recent Installations', path: '/recentinstallation', icon: Package },
+    ],
+  },
+  {
+    title: 'Services',
+    items: [
+{ name: 'Our Services', path: '/services', icon: Sparkles },
+    ],
+  },
+];
 
-/**
- * OptimizedImage Component
- * Uses Next.js Image component with automatic optimization, lazy loading, and blur placeholders
- * Simplified version to avoid DOM timeout errors
- */
-const OptimizedImage = ({
-  src,
-  alt,
-  priority = false,
-  className = "",
-  onError,
-  aspectRatio,
-  sizes = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw",
-  quality = 85,
-  fill = false,
-  width,
-  height,
-  ...props
-}) => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [blurDataURL, setBlurDataURL] = useState(DEFAULT_BLUR);
+export default function Sidebar() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isOpen, setIsOpen] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const { logout } = useAuth();
   const isMounted = useRef(true);
-  const abortControllerRef = useRef(null);
+
+  // JSX-friendly (no TypeScript)
+  const isActive = (path) => pathname === path;
 
   useEffect(() => {
     isMounted.current = true;
-    
     return () => {
       isMounted.current = false;
-      // Abort any ongoing fetch requests
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
     };
   }, []);
 
-  // Generate blur placeholder - SIMPLIFIED VERSION
+  // Close sidebar when clicking outside on mobile
   useEffect(() => {
-    if (!isMounted.current || !src) return;
-
-    // Reset states
-    setIsLoading(true);
-    setHasError(false);
-    setBlurDataURL(DEFAULT_BLUR);
-
-    // For data URLs or blob URLs, skip processing
-    if (src.startsWith("data:") || src.startsWith("blob:")) {
+    const handleClickOutside = (event) => {
+      if (isOpen && !event.target.closest('aside') && !event.target.closest('button[class*="top-4 left-4"]')) {
       if (isMounted.current) {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // For priority images or if we want to skip blur generation
-    if (priority) {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // SIMPLIFIED: Only generate blur for same-origin images to avoid CORS issues
-    const isSameOrigin = () => {
-      try {
-        const url = new URL(src, window.location.origin);
-        return url.origin === window.location.origin;
-      } catch {
-        return false;
+          setIsOpen(false);
+        }
       }
     };
 
-    // Only generate blur for same-origin images to avoid CORS/timeout issues
-    if (!isSameOrigin()) {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-      return;
-    }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isOpen]);
 
-    // Generate blur placeholder with timeout
-    const generateBlur = async () => {
+  // Close sidebar when route changes on mobile - FIXED VERSION
+  useEffect(() => {
       if (!isMounted.current) return;
 
-      try {
-        // Create abort controller for timeout
-        abortControllerRef.current = new AbortController();
-        
-        // Fetch image with timeout
-        const timeoutId = setTimeout(() => {
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
+    const closeSidebar = () => {
+      if (isOpen) {
+        // Use setTimeout to ensure this runs after render
+        setTimeout(() => {
+          if (isMounted.current) {
+            setIsOpen(false);
           }
-        }, 5000); // 5 second timeout
-
-        const response = await fetch(src, {
-          signal: abortControllerRef.current.signal,
-          headers: {
-            // Add cache control to avoid repeated fetches
-            'Cache-Control': 'max-age=86400',
-          },
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const blob = await response.blob();
-        const imgUrl = URL.createObjectURL(blob);
-        
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        
-        // Create promise for image loading
-        const imgLoadPromise = new Promise((resolve, reject) => {
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = imgUrl;
-        });
-
-        // Add timeout for image loading
-        const imgTimeout = setTimeout(() => {
-          reject(new Error('Image loading timeout'));
-        }, 3000);
-
-        const loadedImg = await imgLoadPromise;
-        clearTimeout(imgTimeout);
-
-        // Create small canvas for blur
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        
-        if (!ctx) {
-          throw new Error("Canvas context not available");
-        }
-
-        // Very small dimensions for blur
-        canvas.width = 8;
-        canvas.height = 6;
-        
-        ctx.drawImage(loadedImg, 0, 0, 8, 6);
-        
-        const dataURL = canvas.toDataURL("image/jpeg", 0.2);
-        
-        // Clean up object URL
-        URL.revokeObjectURL(imgUrl);
-
-        if (isMounted.current) {
-          setBlurDataURL(dataURL);
-        }
-
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          console.warn('Blur generation aborted or timed out');
-        } else if (error.message.includes('timeout')) {
-          console.warn('Image loading timeout');
-        } else {
-          console.warn('Failed to generate blur:', error.message);
-        }
-        // Use default blur on error
-        if (isMounted.current) {
-          setBlurDataURL(DEFAULT_BLUR);
-        }
-      } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
+        }, 0);
       }
     };
-
-    // Start blur generation
-    generateBlur();
-
-    return () => {
-      // Cleanup
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [src, priority]);
-
-  const handleError = (e) => {
-    if (!isMounted.current) return;
     
-    console.error('Image load error:', e);
-    setHasError(true);
-    setIsLoading(false);
-    if (onError) {
-      onError(e);
+    closeSidebar();
+  }, [pathname]); // Remove isOpen from dependencies
+
+  // Handle ESC key to close logout modal
+  useEffect(() => {
+    const handleEscKey = (e) => {
+      if (e.key === 'Escape' && showLogoutModal) {
+        setShowLogoutModal(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => document.removeEventListener('keydown', handleEscKey);
+  }, [showLogoutModal]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    if (showLogoutModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [showLogoutModal]);
+
+  const handleLinkClick = () => {
+    if (isMounted.current && window.innerWidth < 640) {
+      setIsOpen(false);
     }
   };
 
-  const handleLoad = () => {
-    if (!isMounted.current) return;
-    setIsLoading(false);
+  const handleLogout = () => {
+    try {
+      logout();
+      router.push('/auth');
+      toast.success('Logged out successfully');
+      setShowLogoutModal(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Failed to logout');
+    }
   };
 
-  // If error, show placeholder
-  if (hasError) {
     return (
-      <div
-        className={`bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${className}`}
-        style={aspectRatio ? { aspectRatio } : {}}
+    <>
+      {/* Mobile Toggle */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="fixed z-50 top-4 left-4 inline-flex items-center p-2 rounded-lg sm:hidden bg-gray-800 text-white hover:bg-gray-700"
+        aria-label={isOpen ? 'Close menu' : 'Open menu'}
       >
-        <span className="text-zinc-500 text-xs">Failed to load</span>
-      </div>
-    );
-  }
+        {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+      </button>
 
-  // If no src, show placeholder
-  if (!src || src === "/placeholder.jpg") {
-    return (
-      <div
-        className={`bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center ${className}`}
-        style={aspectRatio ? { aspectRatio } : {}}
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 sm:hidden"
+          onClick={() => {
+            if (isMounted.current) {
+              setIsOpen(false);
+            }
+          }}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed top-0 left-0 z-40 w-64 h-screen transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } sm:translate-x-0 bg-gradient-to-b from-gray-900 to-gray-800 shadow-xl`}
       >
-        <span className="text-zinc-500 text-xs">No image</span>
+        <div className="h-full px-3 py-4 overflow-y-auto flex flex-col">
+          {/* Header */}
+          <div className="px-4 py-6 mb-4 border-b border-gray-700">
+            <h2 className="text-xl font-bold text-white">
+              Reimagine <span className="text-blue-400">Wall</span>
+            </h2>
+            <p className="text-sm text-gray-400">Scot & Bel Studio</p>
       </div>
-    );
-  }
 
-  // Determine if we should use fill or width/height
-  const useFill = fill || (!width && !height);
+          {/* Menu */}
+          <ul className="space-y-4 flex-1">
+            {sidebarSections.map((section) => (
+              <li key={section.title}>
+                <h3 className="text-xs uppercase text-gray-500 font-semibold px-2 mb-2">
+                  {section.title}
+                </h3>
 
-  // Check if this is an external URL that might need unoptimized
-  const isExternalUrl = src.startsWith('http') && !src.includes('localhost');
+                <ul className="space-y-1">
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActive(item.path);
 
   return (
-    <div 
-      className={`relative overflow-hidden ${className}`} 
-      style={aspectRatio && !useFill ? { aspectRatio } : {}}
-    >
-      {isLoading && (
-        <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center z-10">
-          <div className="w-4 h-4 border border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                      <li key={item.path}>
+                        <Link
+                          href={item.path}
+                          className={`flex items-center p-3 rounded-lg transition-colors ${
+                            active
+                              ? 'bg-gray-700 text-white'
+                              : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                          }`}
+                          onClick={handleLinkClick}
+                        >
+                          <Icon className="w-5 h-5 text-blue-400" />
+                          <span className="ml-3">{item.name}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
+          </ul>
+
+          {/* Logout Button */}
+          <div className="pt-3 mt-auto border-t border-gray-700">
+            <button
+              onClick={() => setShowLogoutModal(true)}
+              className="w-full flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+            >
+              <LogOut className="w-5 h-5 text-red-400" />
+              <span className="ml-3">Logout</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+            <div className="flex items-center mb-4">
+              <AlertCircle className="w-6 h-6 text-yellow-400 mr-3" />
+              <h3 className="text-xl font-semibold text-white">Confirm Logout</h3>
+            </div>
+            <p className="text-gray-300 mb-6">Are you sure you want to logout?</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="px-4 py-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
       )}
-      
-      <Image
-        src={src}
-        alt={alt || "Image"}
-        fill={useFill}
-        width={!useFill ? width : undefined}
-        height={!useFill ? height : undefined}
-        priority={priority}
-        quality={quality}
-        sizes={sizes}
-        className={`object-cover transition-opacity duration-200 ${
-          isLoading ? "opacity-0" : "opacity-100"
-        }`}
-        placeholder={blurDataURL ? "blur" : "empty"}
-        blurDataURL={blurDataURL}
-        onError={handleError}
-        onLoad={handleLoad}
-        onLoadingComplete={() => {
-          if (isMounted.current) {
-            setIsLoading(false);
-          }
-        }}
-        // Unoptimized for external URLs to avoid Next.js Image optimization issues
-        unoptimized={isExternalUrl || src.startsWith("data:") || src.startsWith("blob:")}
-        // Add loading="lazy" for non-priority images
-        loading={priority ? "eager" : "lazy"}
-        {...props}
-      />
-    </div>
+    </>
   );
-};
-
-export default OptimizedImage;
+}
