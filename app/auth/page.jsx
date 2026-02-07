@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "../layout/authcontent.jsx";
 import toast, { Toaster } from "react-hot-toast";
 import axios from "axios";
+import Image from "next/image";
 
 export default function Auth() {
   const [loginData, setLoginData] = useState({ email: "", password: "" });
@@ -135,11 +136,27 @@ export default function Auth() {
           className="hidden lg:flex w-1/2 items-center justify-center p-12"
         >
           <div className="text-center max-w-lg">
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.6 }}
+              className="mb-6"
+            >
+              <Image
+                src="/assets/brand.png"
+                alt="Brand Logo"
+                width={320}
+                height={100}
+                className="object-contain mx-auto mb-4"
+                priority
+              />
+            </motion.div>
+            
             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.3, duration: 0.6 }}>
               <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent mb-6">
                 Reimagine Textile Wall Coverings
               </h1>
-              <p className="text-2xl font-light text-gray-700 mb-8">AI-Powered Textile Wall Coverings</p>
+              {/* <p className="text-2xl font-light text-gray-700 mb-8">Textile Wall Coverings</p> */}
             </motion.div>
 
             <motion.div
@@ -180,7 +197,7 @@ export default function Auth() {
                   <LogIn className="w-8 h-8 text-white" />
                 </div>
               </motion.div>
-              <h2 className="text-2xl font-bold text-gray-800">Welcome Back</h2>
+              <h2 className="text-2xl font-bold text-gray-800">Welcome to Ellendorf</h2>
               <p className="text-gray-500 text-sm">Sign in to your account</p>
             </CardHeader>
 
@@ -272,7 +289,7 @@ export default function Auth() {
               </form>
 
               <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-500">© 2025 Reimagine Textile Wall Coverings. AI-Powered Design Solutions.</p>
+                <p className="text-xs text-gray-500">© 2026 Reimagine Textile Wall Coverings. All rights reserved.</p>
               </div>
             </CardContent>
           </Card>

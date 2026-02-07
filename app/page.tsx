@@ -4,9 +4,11 @@ import { Sparkles, Palette, Shield, Leaf, ChevronRight, Wand2 } from 'lucide-rea
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 
 export default function LuxuryLandingPage() {
   const [currentQuote, setCurrentQuote] = useState(0);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
 
   const quotes = [
     'A wall is a canvas for your dreams.',
@@ -25,7 +27,7 @@ export default function LuxuryLandingPage() {
   const features = [
     {
       icon: <Wand2 className="w-8 h-8" />,
-      title: " Design",
+      title: "Design",
       description: "Exquisite patterns crafted by top designers."
     },
     {
@@ -51,15 +53,53 @@ export default function LuxuryLandingPage() {
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-indigo-600 blur-md opacity-30"></div>
-              <div className="relative text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                Ellendorf
-              </div>
-            </div>
-            <div className="hidden md:block text-sm text-slate-600 font-medium border-l border-slate-200 pl-3">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5 }}
+              className="relative"
+            >
+              <motion.div
+                animate={{ 
+                  opacity: isImageLoaded ? [0.3, 0.5, 0.3] : 0.3,
+                  scale: isImageLoaded ? [1, 1.02, 1] : 1
+                }}
+                transition={{ 
+                  duration: 3,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                className="absolute inset-0 "
+              ></motion.div>
+              <motion.div 
+                className="relative"
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ 
+                  opacity: isImageLoaded ? 1 : 0,
+                  y: isImageLoaded ? 0 : -5
+                }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                onAnimationComplete={() => setIsImageLoaded(true)}
+              >
+                <Image
+                  src="/assets/brand.png"
+                  alt="Brand Logo"
+                  width={180}
+                  height={60}
+                  className="object-contain"
+                  priority
+                  onLoadingComplete={() => setIsImageLoaded(true)}
+                />
+              </motion.div>
+            </motion.div>
+            <motion.div 
+              className="hidden md:block text-sm text-slate-600 font-medium border-l border-slate-200 pl-3"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+            >
               Textile Wall Coverings
-            </div>
+            </motion.div>
           </div>
           <Link href="/auth">
             <Button className="bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white px-6 py-2 rounded-full font-medium shadow-lg hover:shadow-xl transition-all duration-300">
@@ -87,7 +127,7 @@ export default function LuxuryLandingPage() {
               <div className="inline-flex items-center justify-center space-x-3 bg-white/80 backdrop-blur-sm px-8 py-4 rounded-2xl shadow-lg border border-slate-200/50">
                 <Sparkles className="w-6 h-6 text-blue-500" />
                 <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                  Powered by ReImagine Wall
+                  Powered by ReImagine Walls
                 </span>
               </div>
             </motion.div>
@@ -231,16 +271,46 @@ export default function LuxuryLandingPage() {
         <div className="container mx-auto px-6 py-12">
           <div className="flex flex-col md:flex-row items-center justify-between">
             <div className="mb-6 md:mb-0">
-              <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                Ellendorf
-              </div>
-              <p className="text-sm text-slate-500 mt-2">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="relative"
+              >
+                <motion.div
+                  animate={{ 
+                    opacity: [0.2, 0.3, 0.2],
+                    scale: [1, 1.01, 1]
+                  }}
+                  transition={{ 
+                    duration: 4,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                  className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-indigo-600/20 blur-sm"
+                ></motion.div>
+                <div className="relative">
+                  <Image
+                    src="/assets/brand.png"
+                    alt="Brand Logo"
+                    width={160}
+                    height={50}
+                    className="object-contain"
+                  />
+                </div>
+              </motion.div>
+              <motion.p 
+                className="text-sm text-slate-500 mt-2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+              >
                 Your One-Stop Solution for Textile Wall Coverings
-              </p>
+              </motion.p>
             </div>
 
             <div className="text-sm text-slate-500">
-              © {new Date().getFullYear()} Ellendorf. All rights reserved.
+              © {new Date().getFullYear()} All rights reserved.
             </div>
           </div>
         </div>

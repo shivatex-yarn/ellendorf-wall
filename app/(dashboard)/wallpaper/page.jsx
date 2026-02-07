@@ -21,6 +21,7 @@ import {
   Star,
   Layers
 } from 'lucide-react';
+import Image from "next/image";
 
 // Temporary auth mock - replace with actual import when available
 const useAuth = () => ({ 
@@ -615,7 +616,7 @@ export default function Wallpaper() {
         <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-3xl"></div>
         <div className="absolute bottom-20 left-20 w-96 h-96 bg-gradient-to-br from-indigo-400/10 to-blue-600/10 rounded-full blur-3xl"></div>
         
-        <div className="container mx-auto px-6 relative z-10">
+        <div className="container mx-auto px-6 relative z-10">            
           <div className="max-w-5xl mx-auto text-center">
             <motion.div
               initial={{ opacity: 0, y: -20 }}
@@ -630,6 +631,7 @@ export default function Wallpaper() {
               >
                 <Sparkles className="w-12 h-12 text-blue-400" />
               </motion.div>
+              
               
               <h1 className="text-4xl md:text-5xl font-bold mb-4">
                 <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
@@ -1207,7 +1209,15 @@ export default function Wallpaper() {
             <div className="mb-6 md:mb-0">
               <div className="flex items-center space-x-3">
                 <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">
-                  Ellendorf
+                  <div className="relative">
+                                   <Image
+                                     src="/assets/brand.png"
+                                     alt="Brand Logo"
+                                     width={160}
+                                     height={50}
+                                     className="object-contain"
+                                   />
+                                 </div>
                 </div>
                 <div className="h-6 w-px bg-slate-300"></div>
                 <p className="text-sm text-slate-500">

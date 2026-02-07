@@ -23,6 +23,7 @@ import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 // Import shared image loading utilities with retry logic
 import { imageCache, preloadImage, preloadImagesBatch } from '../../lib/imageLoader.js';
+import Image from "next/image";
 
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
@@ -1810,7 +1811,7 @@ export default function EllendorfWallpaperApp() {
 
       doc.setFontSize(24);
       doc.setFont("helvetica", "normal");
-      doc.text("Powered by Reimagine AI", pageWidth / 2, 220, { align: "center" });
+      doc.text("Powered by Reimagine Walls", pageWidth / 2, 220, { align: "center" });
 
       // Add decorative element
       doc.setFillColor(245, 245, 245);
@@ -2178,11 +2179,27 @@ export default function EllendorfWallpaperApp() {
               </span>
               <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.6)]" />
             </div>
-            
+           
+                        <motion.div 
+                          initial={{ opacity: 0, y: -20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.2, duration: 0.6 }}
+                          className="mb-6"
+                        >
+                          <Image
+                            src="/assets/brand.png"
+                            alt="Brand Logo"
+                            width={320}
+                            height={100}
+                            className="object-contain mx-auto mt-24"
+                            priority
+                          />
+                        </motion.div>
+                      </div> 
             <h1 className="text-3xl md:text-5xl lg:text-6xl font-light text-center mb-4 tracking-tight">
-              <span className="relative bg-clip-text text-transparent bg-gradient-to-r from-blue-900 via-blue-400 to-blue-900 bg-[length:200%_200%] animate-[shine_6s_linear_infinite] drop-shadow-[0_1px_8px_rgba(59,130,246,0.4)]">
+              {/* <span className="relative bg-clip-text text-transparent bg-gradient-to-r from-blue-900 via-blue-400 to-blue-900 bg-[length:200%_200%] animate-[shine_6s_linear_infinite] drop-shadow-[0_1px_8px_rgba(59,130,246,0.4)]">
                 Ellendorf
-              </span>
+              </span> */}
               <br />
               <span className="text-xl md:text-3xl lg:text-4xl font-light text-zinc-300"> Textile Wall Coverings</span>
             </h1>
@@ -2192,13 +2209,13 @@ export default function EllendorfWallpaperApp() {
               Each design tells a story of craftsmanship and elegance.
             </p>
           </div>
-        </div>
+
       </section>
 
       <main id="collections" className="py-4 md:py-8 px-4 md:px-8 bg-black">
         <div className="container mx-auto">
           <h2 className="text-xl md:text-2xl font-light text-center text-zinc-300 mb-6 md:mb-8">
-            {searchTerm ? `Results for "${searchTerm}"` : "All Textile Wall Coverings"}
+            {/* {searchTerm ? `Results for "${searchTerm}"` : "All Textile Wall Coverings"} */}
             {highlightedProductCode && (
               <span className="block text-sm md:text-base text-blue-400 mt-2">
                 Highlighting product code: {highlightedProductCode}
@@ -2337,7 +2354,7 @@ export default function EllendorfWallpaperApp() {
       </AnimatePresence>
 
       <footer className="py-6 px-4 border-t border-zinc-800 text-center text-zinc-500 text-sm">
-        <p>Ellendorf Luxury Wall Covering Collection | Powered by Reimagine AI</p>
+        <p>Ellendorf Luxury Wall Covering Collection | Powered by Reimagine Walls</p>
         <p className="mt-1">© {new Date().getFullYear()} All rights reserved</p>
       </footer>
     </div>
