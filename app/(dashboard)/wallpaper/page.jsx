@@ -38,7 +38,7 @@ const useAuth = () => ({
 });
 
 // Import image loading utilities
-import { preloadAllImages, imageCache } from '@/lib/imageLoader';
+import { preloadAllImages, preloadImagesBatch, imageCache } from '@/lib/imageLoader';
 
 export default function Wallpaper() {
   const [quoteIndex, setQuoteIndex] = useState(0);
