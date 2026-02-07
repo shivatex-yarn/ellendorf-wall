@@ -281,13 +281,10 @@ export default function ServicesPage() {
         }
       `}</style>
 
-      <div className="min-h-screen bg-gradient-to-b from-white via-blue-50/30 to-white overflow-hidden">
-        {/* Light Background Effects */}
+      <div className="min-h-screen bg-white overflow-hidden">
+        {/* Light Background Effects - Removed colored gradients, keeping white */}
         <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-50/50 via-white to-white"></div>
-          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-gradient-to-br from-blue-100/30 via-purple-100/30 to-transparent rounded-full blur-3xl"></div>
-          <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-gradient-to-tr from-indigo-100/30 via-pink-100/30 to-transparent rounded-full blur-3xl"></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-r from-blue-100/20 via-purple-100/20 to-indigo-100/20 rounded-full blur-3xl"></div>
+          <div className="absolute inset-0 bg-white"></div>
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 md:py-24">
@@ -295,7 +292,7 @@ export default function ServicesPage() {
           <div className="text-center mb-24">
             {/* Company Story */}
             <div className="mb-16 max-w-4xl mx-auto">
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-8 mb-12">
+              <div className="bg-white border border-gray-200 rounded-2xl p-8 mb-12 shadow-sm">
                 <p className="text-gray-700 leading-relaxed font-medium italic">
                   We believe wall coverings should not trap air, mold, or moisture — they should breathe just like nature.
                 </p>
@@ -303,7 +300,7 @@ export default function ServicesPage() {
             </div>
 
             {/* Animated badge */}
-            <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-full mb-8 animate-pulse">
+            <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-200 rounded-full mb-8 shadow-sm">
               <Sparkle className="w-4 h-4 text-blue-500" />
               <span className="text-sm font-semibold text-blue-600 uppercase tracking-wider">
                 Premium Excellence
@@ -385,8 +382,8 @@ export default function ServicesPage() {
          
           {/* CTA Section */}
           <div className="relative">
-            {/* Background Glow */}
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-purple-50 to-indigo-50 rounded-[3rem] blur-3xl"></div>
+            {/* Background - White */}
+            <div className="absolute inset-0 bg-white rounded-[3rem]"></div>
             
             {/* Main Container */}
             <div className="relative overflow-hidden rounded-[3rem] border border-gray-200 bg-white">

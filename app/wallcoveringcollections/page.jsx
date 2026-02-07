@@ -1496,6 +1496,12 @@ export default function EllendorfWallpaperApp() {
     setIsGeneratingPDF(true);
   
     try {
+      // Initialize jsPDF properly
+      const { jsPDF } = window.jspdf || {};
+      if (!jsPDF) {
+        throw new Error("jsPDF library not loaded. Please refresh the page and try again.");
+      }
+  
       const doc = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
@@ -1516,379 +1522,435 @@ export default function EllendorfWallpaperApp() {
       const PDF_IMAGE_MAX_DIMENSION = 800;
       const PDF_JPEG_QUALITY = 0.55;
   
-      // Helper function to load image with retry logic and cache support
-      const loadImageForWatermark = async (imageUrl, retryCount = 0, maxRetries = 3) => {
-        const cachedUrl = imageCache.get(imageUrl);
-        if (cachedUrl && cachedUrl !== null && !(cachedUrl instanceof Promise)) {
-          return cachedUrl;
-        }
-  
-        const loadingPromise = imageCache.getLoadingPromise(imageUrl);
-        if (loadingPromise) {
-          try {
-            return await loadingPromise;
-          } catch (error) {
-            if (retryCount < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-              return loadImageForWatermark(imageUrl, retryCount + 1, maxRetries);
-            }
-            throw error;
-          }
-        }
-  
-        try {
-          return await preloadImage(imageUrl, true);
-        } catch (error) {
-          if (retryCount < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-            return loadImageForWatermark(imageUrl, retryCount + 1, maxRetries);
-          }
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            
-            const timeout = setTimeout(() => {
-              reject(new Error("Image load timeout"));
-            }, 30000);
-            
-            img.onload = () => {
-              clearTimeout(timeout);
-              resolve(imageUrl);
-            };
-            
-            img.onerror = () => {
-              clearTimeout(timeout);
-              reject(new Error("Failed to load image"));
-            };
-            
-            img.src = imageUrl;
-          });
-        }
+      // Luxury color palette
+      const COLORS = {
+        gold: [184, 134, 11],        // Luxury gold
+        darkGray: [40, 40, 40],      // Dark charcoal
+        lightGray: [245, 245, 245],  // Light background
+        mediumGray: [120, 120, 120], // Medium gray
+        white: [255, 255, 255],      // Pure white
+        black: [0, 0, 0],            // Black
+        accentGold: [218, 165, 32],  // Accent gold
       };
   
-      // Function to add watermark to image
-      const addWatermarkToImage = async (imageUrl) => {
-        let imageSrc = imageUrl;
-        let objectUrl = null;
-        
-        try {
-          imageSrc = await loadImageForWatermark(imageUrl);
-          
+      // Simplified image loading
+      const loadImageForPDF = async (imageUrl, retryCount = 0, maxRetries = 2) => {
+        return new Promise((resolve, reject) => {
           const img = new Image();
           img.crossOrigin = "anonymous";
           
-          if (imageSrc.startsWith('blob:') || imageSrc.startsWith('data:')) {
-            img.src = imageSrc;
-          } else {
-            try {
-              const response = await fetch(imageSrc, {
-                mode: 'cors',
-                credentials: 'omit',
-                cache: 'force-cache'
-              });
-              
-              if (response.ok) {
-                const blob = await response.blob();
-                objectUrl = URL.createObjectURL(blob);
-                img.src = objectUrl;
-              } else {
-                img.src = imageSrc;
-              }
-            } catch (fetchError) {
-              img.src = imageSrc;
+          const timeout = setTimeout(() => {
+            reject(new Error("Image load timeout"));
+          }, 20000);
+          
+          img.onload = () => {
+            clearTimeout(timeout);
+            
+            // Create canvas to resize image
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Calculate new dimensions
+            let width = img.width;
+            let height = img.height;
+            const maxDim = Math.max(width, height);
+            
+            if (maxDim > PDF_IMAGE_MAX_DIMENSION) {
+              const scale = PDF_IMAGE_MAX_DIMENSION / maxDim;
+              width = Math.round(width * scale);
+              height = Math.round(height * scale);
             }
-          }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            try {
+              ctx.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+              resolve(dataUrl);
+            } catch (error) {
+              resolve(imageUrl);
+            }
+          };
           
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              reject(new Error("Image load timeout"));
-            }, 30000);
-            
-            img.onload = () => {
-              clearTimeout(timeout);
-              resolve();
-            };
-            
-            img.onerror = () => {
-              clearTimeout(timeout);
+          img.onerror = () => {
+            clearTimeout(timeout);
+            if (retryCount < maxRetries) {
+              setTimeout(() => {
+                loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
+                  .then(resolve)
+                  .catch(reject);
+              }, 1000 * (retryCount + 1));
+            } else {
               reject(new Error("Failed to load image"));
-            };
-          });
+            }
+          };
           
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          ctx.drawImage(img, 0, 0, img.width, img.height);
-          
-          // Resize for PDF
-          const w = canvas.width;
-          const h = canvas.height;
-          const maxDim = Math.max(w, h);
-          let outW = Math.max(1, w);
-          let outH = Math.max(1, h);
-          if (maxDim > PDF_IMAGE_MAX_DIMENSION) {
-            const scale = PDF_IMAGE_MAX_DIMENSION / maxDim;
-            outW = Math.max(1, Math.round(w * scale));
-            outH = Math.max(1, Math.round(h * scale));
+          const cachedUrl = imageCache.get(imageUrl);
+          if (cachedUrl && cachedUrl !== null && !(cachedUrl instanceof Promise)) {
+            img.src = cachedUrl;
+          } else {
+            img.src = imageUrl;
           }
-          let watermarkedImage;
-          try {
-            const outCanvas = document.createElement('canvas');
-            outCanvas.width = outW;
-            outCanvas.height = outH;
-            const outCtx = outCanvas.getContext('2d');
-            outCtx.drawImage(canvas, 0, 0, w, h, 0, 0, outW, outH);
-            watermarkedImage = outCanvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
-          } catch (resizeErr) {
-            watermarkedImage = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
-          }
-          
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-          }
-          
-          return watermarkedImage;
-        } catch (error) {
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-          }
-          throw error;
-        }
+        });
       };
   
-      // ===== COVER PAGE - EXACT MATCH TO SCREENSHOT =====
-      doc.setFillColor(255, 255, 255);
+      // Helper function to add luxury border
+      const addLuxuryBorder = (x, y, width, height) => {
+        // Outer gold border
+        doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+        doc.setLineWidth(1.5);
+        doc.rect(x, y, width, height);
+        
+        // Inner thin border
+        const innerPadding = 4;
+        doc.setDrawColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+        doc.setLineWidth(0.5);
+        doc.rect(x + innerPadding, y + innerPadding, 
+                 width - (innerPadding * 2), height - (innerPadding * 2));
+      };
+  
+      // Helper function to add decorative corner accents
+      const addCornerAccents = (x, y, width, height) => {
+        const cornerSize = 12;
+        
+        // Top-left corner
+        doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+        doc.setLineWidth(1);
+        doc.line(x, y + cornerSize, x, y);
+        doc.line(x, y, x + cornerSize, y);
+        
+        // Top-right corner
+        doc.line(x + width - cornerSize, y, x + width, y);
+        doc.line(x + width, y, x + width, y + cornerSize);
+        
+        // Bottom-left corner
+        doc.line(x, y + height - cornerSize, x, y + height);
+        doc.line(x, y + height, x + cornerSize, y + height);
+        
+        // Bottom-right corner
+        doc.line(x + width - cornerSize, y + height, x + width, y + height);
+        doc.line(x + width, y + height, x + width, y + height - cornerSize);
+      };
+  
+      // ===== LUXURY COVER PAGE =====
+      doc.setFillColor(COLORS.white[0], COLORS.white[1], COLORS.white[2]);
       doc.rect(0, 0, pageWidth, pageHeight, "F");
-  
-      // Brand name at top - exact styling from screenshot
-      doc.setFontSize(48);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(0, 0, 0);
-      doc.text("ELLENDORF", pageWidth / 2, 80, { align: "center" });
-  
-      // Subtitle "Premium Wall Coverings"
-      doc.setFontSize(32);
-      doc.setFont("helvetica", "normal");
-      doc.text("Premium Wall Coverings", pageWidth / 2, 120, { align: "center" });
-  
-      // "Powered by Reimagine Walls" - smaller, lighter
-      doc.setFontSize(20);
-      doc.setTextColor(100, 100, 100);
-      doc.text("Powered by Reimagine Walls", pageWidth / 2, 150, { align: "center" });
-  
-      // Client info section
-      doc.setFontSize(24);
-      doc.setTextColor(0, 0, 0);
-      doc.text("Client:", pageWidth / 2, 200, { align: "center" });
       
-      doc.setFontSize(28);
-      doc.setFont("helvetica", "bold");
-      doc.text(customerName, pageWidth / 2, 235, { align: "center" });
-  
-      // Generated timestamp
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 100, 100);
-      doc.text("Generated: " + timestamp, pageWidth / 2, 270, { align: "center" });
-  
-      // Total Selections
-      doc.setFontSize(20);
-      doc.setTextColor(0, 0, 0);
-      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, 310, { align: "center" });
-  
-      // Thank you message
-      doc.setFontSize(22);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(50, 50, 50);
-      doc.text("Thank you for choosing", pageWidth / 2, 370, { align: "center" });
-  
-      // Brand footer
-      doc.setFontSize(32);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(0, 0, 0);
-      doc.text("Ellendorf Luxury Collection", pageWidth / 2, 410, { align: "center" });
-  
-      // Tagline
-      doc.setFontSize(16);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 100, 100);
-      doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, 450, { align: "center" });
-  
-      // Add decorative border
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(1);
-      doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
-  
-      // ===== CONTENT PAGES =====
-      // Preload images
-      const imageUrls = likedWallpapers
-        .filter(wp => wp.imageUrl && wp.imageUrl !== "/placeholder.jpg")
-        .map(wp => wp.imageUrl);
-      
-      if (imageUrls.length > 0) {
-        try {
-          await preloadImagesBatch(imageUrls, 12, true);
-        } catch (preloadError) {
-          console.warn("Some images failed to preload:", preloadError);
+      // Luxury background pattern (subtle)
+      const patternSpacing = 40;
+      for (let i = 0; i < pageWidth; i += patternSpacing) {
+        for (let j = 0; j < pageHeight; j += patternSpacing) {
+          doc.setDrawColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+          doc.setLineWidth(0.1);
+          doc.circle(i, j, 0.5, "S");
         }
       }
   
-      // Process each wallpaper
+      // Luxury border around entire page
+      addLuxuryBorder(20, 20, pageWidth - 40, pageHeight - 40);
+      
+      // Add corner accents
+      addCornerAccents(20, 20, pageWidth - 40, pageHeight - 40);
+  
+      // Main brand with luxury gradient effect
+      doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+      
+      // Background for brand text
+      doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+      doc.roundedRect(pageWidth / 2 - 160, 60, 320, 70, 10, 10, "F");
+      addLuxuryBorder(pageWidth / 2 - 160, 60, 320, 70);
+      
+      // Main brand name
+      doc.setFontSize(52);
+      doc.setFont("helvetica", "bold");
+      doc.text("ELLENDORF", pageWidth / 2, 100, { align: "center" });
+  
+      // Luxury subtitle with decorative lines
+      const subtitleY = 130;
+      doc.setFontSize(24);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+      
+      // Decorative left line
+      doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+      doc.setLineWidth(1);
+      doc.line(pageWidth / 2 - 120, subtitleY, pageWidth / 2 - 20, subtitleY);
+      
+      // Text
+      doc.text("Premium Wall Coverings", pageWidth / 2, subtitleY, { align: "center" });
+      
+      // Decorative right line
+      doc.line(pageWidth / 2 + 20, subtitleY, pageWidth / 2 + 120, subtitleY);
+  
+      // "Powered by" section
+      doc.setFontSize(16);
+      doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+      doc.text("Powered by Reimagine Walls", pageWidth / 2, 155, { align: "center" });
+  
+      // Luxury client information card
+      const cardY = 190;
+      const cardWidth = 400;
+      const cardHeight = 180;
+      const cardX = (pageWidth - cardWidth) / 2;
+      
+      // Card background
+      doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 15, 15, "F");
+      addLuxuryBorder(cardX, cardY, cardWidth, cardHeight);
+      addCornerAccents(cardX, cardY, cardWidth, cardHeight);
+      
+      // Card title
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+      doc.text("CLIENT PORTFOLIO", pageWidth / 2, cardY + 30, { align: "center" });
+  
+      // Decorative divider
+      doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+      doc.setLineWidth(1.5);
+      doc.line(cardX + 50, cardY + 45, cardX + cardWidth - 50, cardY + 45);
+  
+      // Client name (centered and prominent)
+      doc.setFontSize(32);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(COLORS.black[0], COLORS.black[1], COLORS.black[2]);
+      doc.text(customerName, pageWidth / 2, cardY + 85, { align: "center" });
+  
+      // Generated timestamp
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+      doc.text(`Generated: ${timestamp}`, pageWidth / 2, cardY + 115, { align: "center" });
+  
+      // Total selections badge
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(COLORS.black[0], COLORS.black[1], COLORS.black[2]);
+      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, cardY + 145, { align: "center" });
+  
+      // Luxury thank you message
+      const thankYouY = 400;
+      doc.setFontSize(26);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+      doc.text("Thank you for choosing", pageWidth / 2, thankYouY, { align: "center" });
+  
+      // Brand footer with luxury styling
+      doc.setFontSize(36);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(COLORS.black[0], COLORS.black[1], COLORS.black[2]);
+      
+      // Background for brand footer
+      doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+      doc.roundedRect(pageWidth / 2 - 220, thankYouY + 30, 440, 60, 10, 10, "F");
+      addLuxuryBorder(pageWidth / 2 - 220, thankYouY + 30, 440, 60);
+      
+      doc.text("Ellendorf Luxury Collection", pageWidth / 2, thankYouY + 60, { align: "center" });
+  
+      // Luxury tagline with decorative elements
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+      
+      // Left decorative element
+      doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+      doc.setLineWidth(0.5);
+      doc.line(pageWidth / 2 - 180, thankYouY + 85, pageWidth / 2 - 50, thankYouY + 85);
+      
+      // Tagline text
+      doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", 
+               pageWidth / 2, thankYouY + 85, { align: "center" });
+      
+      // Right decorative element
+      doc.line(pageWidth / 2 + 50, thankYouY + 85, pageWidth / 2 + 180, thankYouY + 85);
+  
+      // Page number for cover
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+      doc.text("Page 1", pageWidth / 2, pageHeight - 30, { align: "center" });
+  
+      // ===== LUXURY CONTENT PAGES =====
       for (let i = 0; i < likedWallpapers.length; i++) {
         const wp = likedWallpapers[i];
-        doc.addPage();
+        
+        // Add new page for each wallpaper
+        if (i > 0) {
+          doc.addPage();
+        }
         
         // White background
-        doc.setFillColor(255, 255, 255);
+        doc.setFillColor(COLORS.white[0], COLORS.white[1], COLORS.white[2]);
         doc.rect(0, 0, pageWidth, pageHeight, "F");
-  
-        // Add header with brand info
-        doc.setFontSize(24);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(0, 0, 0);
-        doc.text("ELLENDORF", pageWidth / 2, 40, { align: "center" });
         
-        doc.setFontSize(16);
+        // Luxury border around entire page
+        addLuxuryBorder(20, 20, pageWidth - 40, pageHeight - 40);
+        
+        // Add corner accents
+        addCornerAccents(20, 20, pageWidth - 40, pageHeight - 40);
+  
+        // Luxury header with branding
+        const headerHeight = 80;
+        
+        // Header background
+        doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+        doc.rect(30, 30, pageWidth - 60, headerHeight, "F");
+        addLuxuryBorder(30, 30, pageWidth - 60, headerHeight);
+        
+        // Brand name
+        doc.setFontSize(28);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+        doc.text("ELLENDORF", pageWidth / 2, 60, { align: "center" });
+        
+        // Subtitle
+        doc.setFontSize(14);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 100, 100);
-        doc.text("Premium Wall Coverings", pageWidth / 2, 60, { align: "center" });
+        doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+        doc.text("Premium Wall Coverings", pageWidth / 2, 80, { align: "center" });
+        
+        // Decorative line under header
+        doc.setDrawColor(COLORS.gold[0], COLORS.gold[1], COLORS.gold[2]);
+        doc.setLineWidth(1);
+        doc.line(50, 90, pageWidth - 50, 90);
   
         try {
-          // Add watermarked image
-          const watermarkedImage = await addWatermarkToImage(wp.imageUrl);
-          const img = new Image();
-          img.src = watermarkedImage;
+          // Load and add image
+          const processedImage = await loadImageForPDF(wp.imageUrl);
           
+          const img = new Image();
           await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              reject(new Error("Image load timeout"));
-            }, 30000);
-            
-            img.onload = () => {
-              clearTimeout(timeout);
-              try {
-                const imgRatio = img.width / img.height;
-                
-                // Image dimensions
-                const MAX_IMAGE_WIDTH = pageWidth - 80;
-                const MAX_IMAGE_HEIGHT = pageHeight - 180;
-                
-                let drawWidth, drawHeight;
-                
-                if (imgRatio > 1) {
-                  drawWidth = MAX_IMAGE_WIDTH;
-                  drawHeight = MAX_IMAGE_WIDTH / imgRatio;
-                } else {
-                  drawHeight = MAX_IMAGE_HEIGHT;
-                  drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
-                }
-                
-                if (drawHeight > MAX_IMAGE_HEIGHT) {
-                  drawHeight = MAX_IMAGE_HEIGHT;
-                  drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
-                }
-                if (drawWidth > MAX_IMAGE_WIDTH) {
-                  drawWidth = MAX_IMAGE_WIDTH;
-                  drawHeight = MAX_IMAGE_WIDTH / imgRatio;
-                }
-                
-                // Center the image
-                const x = (pageWidth - drawWidth) / 2;
-                const y = 80; // Below header
-                
-                // Add the image
-                doc.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
-                
-                // Add wallpaper info below image
-                const infoY = y + drawHeight + 20;
-                
-                // Product code
-                doc.setFontSize(20);
-                doc.setFont("helvetica", "bold");
-                doc.setTextColor(0, 0, 0);
-                doc.text(wp.productCode || "N/A", pageWidth / 2, infoY, { align: "center" });
-                
-                // Product name
-                doc.setFontSize(16);
-                doc.setFont("helvetica", "normal");
-                const displayName = wp.name && wp.name.length > 50 
-                  ? wp.name.substring(0, 47) + "..." 
-                  : wp.name || "Untitled";
-                doc.text(displayName, pageWidth / 2, infoY + 25, { align: "center" });
-                
-                // Collection
-                if (wp.subCategory?.name) {
-                  doc.setFontSize(14);
-                  doc.setTextColor(100, 100, 100);
-                  doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, infoY + 45, { align: "center" });
-                }
-                
-                // Footer
-                const footerY = pageHeight - 40;
-                
-                doc.setFontSize(10);
-                doc.setTextColor(150, 150, 150);
-                doc.text(`Client: ${customerName}`, 40, footerY);
-                doc.text(timestamp, pageWidth - 40, footerY, { align: "right" });
-                
-                doc.setFontSize(10);
-                doc.setFont("helvetica", "italic");
-                doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY, { align: "center" });
-                
-                // Bottom brand line
-                doc.setFontSize(8);
-                doc.text("ELLENDORF Premium Wall Coverings - Powered by Reimagine Walls", pageWidth / 2, footerY + 15, { align: "center" });
-                
-                resolve();
-              } catch (error) {
-                reject(error);
-              }
-            };
-            
-            img.onerror = () => {
-              clearTimeout(timeout);
-              reject(new Error("Failed to load watermarked image"));
-            };
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = processedImage;
           });
+          
+          const imgRatio = img.width / img.height;
+          
+          // Image container with luxury border
+          const MAX_IMAGE_WIDTH = pageWidth - 120;  // More margin for luxury look
+          const MAX_IMAGE_HEIGHT = pageHeight - 280; // Space for header, info, and footer
+          
+          let drawWidth, drawHeight;
+          
+          if (imgRatio > 1) {
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          } else {
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          
+          if (drawHeight > MAX_IMAGE_HEIGHT) {
+            drawHeight = MAX_IMAGE_HEIGHT;
+            drawWidth = MAX_IMAGE_HEIGHT * imgRatio;
+          }
+          if (drawWidth > MAX_IMAGE_WIDTH) {
+            drawWidth = MAX_IMAGE_WIDTH;
+            drawHeight = MAX_IMAGE_WIDTH / imgRatio;
+          }
+          
+          // Center the image
+          const imageX = (pageWidth - drawWidth) / 2;
+          const imageY = 110; // Below header
+          
+          // Add luxury border around image
+          addLuxuryBorder(imageX - 8, imageY - 8, drawWidth + 16, drawHeight + 16);
+          
+          // Add the image inside the border
+          doc.addImage(processedImage, "JPEG", imageX, imageY, drawWidth, drawHeight);
+          
+          // Luxury information panel below image
+          const infoPanelY = imageY + drawHeight + 30;
+          const infoPanelHeight = 100;
+          
+          // Panel background
+          doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+          doc.roundedRect(50, infoPanelY, pageWidth - 100, infoPanelHeight, 10, 10, "F");
+          addLuxuryBorder(50, infoPanelY, pageWidth - 100, infoPanelHeight);
+          
+          // Product code (prominent)
+          doc.setFontSize(22);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+          doc.text(`PRODUCT CODE: ${wp.productCode || "N/A"}`, pageWidth / 2, infoPanelY + 30, { align: "center" });
+          
+          // Product name
+          doc.setFontSize(16);
+          doc.setFont("helvetica", "normal");
+          const displayName = wp.name && wp.name.length > 70 
+            ? wp.name.substring(0, 67) + "..." 
+            : wp.name || "Untitled Design";
+          doc.text(displayName, pageWidth / 2, infoPanelY + 55, { align: "center" });
+          
+          // Collection
+          if (wp.subCategory?.name) {
+            doc.setFontSize(14);
+            doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, infoPanelY + 75, { align: "center" });
+          }
+          
         } catch (err) {
           console.error(`Error processing image ${i + 1}:`, err);
           
-          // Fallback layout
-          const fallbackY = pageHeight / 2 - 30;
+          // Luxury fallback display
+          const fallbackY = pageHeight / 2 - 50;
           
-          doc.setTextColor(150, 150, 150);
+          // Fallback panel
+          doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+          doc.roundedRect(100, fallbackY - 20, pageWidth - 200, 120, 10, 10, "F");
+          addLuxuryBorder(100, fallbackY - 20, pageWidth - 200, 120);
+          
+          doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
           doc.setFontSize(24);
           doc.setFont("helvetica", "italic");
-          doc.text("Image unavailable", pageWidth / 2, fallbackY, { align: "center" });
+          doc.text("PREVIEW UNAVAILABLE", pageWidth / 2, fallbackY, { align: "center" });
           
           doc.setFontSize(18);
           doc.setFont("helvetica", "normal");
-          doc.text(wp.name || "Untitled", pageWidth / 2, fallbackY + 40, { align: "center" });
-          doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, fallbackY + 70, { align: "center" });
-          
-          // Fallback footer
-          const footerY = pageHeight - 40;
-          doc.setFontSize(10);
-          doc.setTextColor(100, 100, 100);
-          doc.text(`Client: ${customerName}`, 40, footerY);
-          doc.text(timestamp, pageWidth - 40, footerY, { align: "right" });
-          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY, { align: "center" });
+          doc.text(wp.name || "Exclusive Design", pageWidth / 2, fallbackY + 30, { align: "center" });
+          doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, fallbackY + 55, { align: "center" });
         }
+        
+        // Luxury footer
+        const footerY = pageHeight - 70;
+        const footerHeight = 50;
+        
+        // Footer background
+        doc.setFillColor(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]);
+        doc.rect(30, footerY, pageWidth - 60, footerHeight, "F");
+        addLuxuryBorder(30, footerY, pageWidth - 60, footerHeight);
+        
+        // Client name (left)
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(COLORS.darkGray[0], COLORS.darkGray[1], COLORS.darkGray[2]);
+        doc.text(`Client: ${customerName}`, 50, footerY + 20);
+        
+        // Page number (center)
+        doc.setFont("helvetica", "italic");
+        doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY + 20, { align: "center" });
+        
+        // Timestamp (right)
+        doc.text(timestamp, pageWidth - 50, footerY + 20, { align: "right" });
+        
+        // Bottom brand line
+        doc.setFontSize(8);
+        doc.setTextColor(COLORS.mediumGray[0], COLORS.mediumGray[1], COLORS.mediumGray[2]);
+        doc.text("ELLENDORF Premium Wall Coverings • Powered by Reimagine Walls", 
+                 pageWidth / 2, footerY + 35, { align: "center" });
       }
   
       // Save PDF
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
       
-      const pdfBlob = doc.output('blob');
-      
       try {
         doc.save(fileName);
       } catch (saveError) {
-        console.warn("PDF save method failed, trying alternative:", saveError);
+        console.warn("Direct save failed:", saveError);
         try {
+          const pdfBlob = doc.output('blob');
           const url = URL.createObjectURL(pdfBlob);
           const link = document.createElement('a');
           link.href = url;
@@ -1902,7 +1964,7 @@ export default function EllendorfWallpaperApp() {
             URL.revokeObjectURL(url);
           }, 100);
         } catch (blobError) {
-          console.error("PDF blob download failed:", blobError);
+          console.error("Blob save failed:", blobError);
           const pdfDataUrl = doc.output('dataurlstring');
           const link = document.createElement('a');
           link.href = pdfDataUrl;
@@ -1917,10 +1979,8 @@ export default function EllendorfWallpaperApp() {
         }
       }
       
-      // Show success message
       if (typeof window !== 'undefined' && window.toast) {
-        const pdfSizeKB = (pdfBlob.size / 1024).toFixed(2);
-        window.toast.success(`PDF downloaded: ${pdfSizeKB} KB`, { duration: 3000 });
+        window.toast.success(`Luxury Brochure Downloaded`, { duration: 3000 });
       }
       
     } catch (error) {
