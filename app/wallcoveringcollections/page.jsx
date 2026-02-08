@@ -21,6 +21,7 @@ import {
 import { jsPDF } from "jspdf";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
+import toast from "react-hot-toast";
 // Import shared image loading utilities with retry logic
 import { imageCache, preloadImage, preloadImagesBatch } from '../../lib/imageLoader.js';
 import Image from "next/image";
@@ -1529,6 +1530,7 @@ export default function EllendorfWallpaperApp() {
 
   // Helper function to load image with retry logic - CRITICAL for reliability
   // ABORTS PDF if image fails after all retries
+  // IMPROVED: Longer timeout for high-quality images
   const loadImageForPDF = async (imageUrl, retryCount = 0, maxRetries = 5) => {
     return new Promise((resolve, reject) => {
       const img = new window.Image();
@@ -1542,9 +1544,10 @@ export default function EllendorfWallpaperApp() {
         if (objectUrl) URL.revokeObjectURL(objectUrl);
       };
       
+      // Longer timeout for high-quality images (45 seconds)
       timeout = setTimeout(() => {
         cleanup();
-          if (retryCount < maxRetries) {
+        if (retryCount < maxRetries) {
           console.log(`Image load timeout, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
           loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
             .then(resolve)
@@ -1552,7 +1555,7 @@ export default function EllendorfWallpaperApp() {
         } else {
           reject(new Error(`Image load timeout after ${maxRetries} retries: ${imageUrl}`));
         }
-      }, 30000); // 30 second timeout per attempt
+      }, 45000); // 45 second timeout per attempt (increased for high-quality images)
             
             img.onload = () => {
         cleanup();
@@ -1627,11 +1630,11 @@ export default function EllendorfWallpaperApp() {
       setIsGeneratingPDF(false);
       return;
     }
-  
+
     setIsGeneratingPDF(true);
     
     console.log(`Starting PDF generation for ${likedWallpapers.length} wallpapers...`);
-  
+
     try {
       const { default: jsPDF } = await import('jspdf');
       
@@ -1649,7 +1652,7 @@ export default function EllendorfWallpaperApp() {
         second: '2-digit'
       });
       const formattedDate = currentDate.toISOString().split('T')[0];
-      
+
       // Load brand image once for reuse
       console.log('Loading brand image...');
       const brandImg = await loadBrandImage();
@@ -1687,25 +1690,27 @@ export default function EllendorfWallpaperApp() {
       doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 35, pageHeight - 15);
       doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 15, pageHeight - 35);
       
-      // Brand logo above ELLENDORF (if available)
+      // Brand logo - PROPERLY ALIGNED ABOVE ELLENDORF
       if (brandImageData) {
         try {
-          const logoWidth = 60; // mm
+          const logoWidth = 65; // mm - slightly larger
           const logoHeight = (logoWidth * brandImg.height) / brandImg.width;
-          const logoX = (pageWidth - logoWidth) / 2;
-          const logoY = 30;
+          const logoX = (pageWidth - logoWidth) / 2; // Centered
+          const logoY = 25; // Top position
           doc.addImage(brandImageData, 'PNG', logoX, logoY, logoWidth, logoHeight);
-          console.log('Brand logo added to cover page');
+          console.log(`Brand logo added: ${logoWidth}mm x ${logoHeight}mm at (${logoX}, ${logoY})`);
         } catch (err) {
           console.warn('Failed to add brand logo to cover:', err);
         }
       }
       
-      // Main title - ELLENDORF
+      // Main title - ELLENDORF (MOVED DOWN BELOW LOGO)
       doc.setTextColor(30, 30, 30);
       doc.setFontSize(42);
       doc.setFont("times", "bold");
-      const titleY = brandImageData ? 50 : 60;
+      // Calculate proper Y position - logo height + spacing
+      const logoBottomY = brandImageData ? (25 + (65 * brandImg.height / brandImg.width) + 8) : 25;
+      const titleY = logoBottomY; // ELLENDORF starts right below logo
       doc.text("ELLENDORF", pageWidth / 2, titleY, { align: "center" });
       
       // Decorative line under title
@@ -1836,30 +1841,77 @@ export default function EllendorfWallpaperApp() {
               // Load image with retry logic - CRITICAL
               const img = await loadImageForPDF(wp.imageUrl);
               
-              // Calculate dimensions - MORE SPACE FOR IMAGE
-              const maxWidth = pageWidth - 40; // More margin
-              const maxHeight = pageHeight - 140; // More space for text below
+              // ========== 300 DPI PRINT QUALITY - NO OVER-SCALING ==========
+              const DPI = 300; // Standard print quality (vs ~96 DPI for screens)
+              const mmToPixels = DPI / 25.4; // Convert mm to pixels at 300 DPI (11.811 pixels/mm)
               
-              let originalWidth = img.naturalWidth || img.width || 1200;
-              let originalHeight = img.naturalHeight || img.height || 900;
+              // Calculate available space in mm (physical size)
+              const maxWidthMM = pageWidth - 40; // Margins
+              const maxHeightMM = pageHeight - 140; // Space for text below
               
-              let targetWidth = originalWidth;
-              let targetHeight = originalHeight;
+              // Get original image dimensions (native resolution)
+              const originalWidthPx = img.naturalWidth || img.width || 1200;
+              const originalHeightPx = img.naturalHeight || img.height || 900;
               
-              const widthRatio = maxWidth / targetWidth;
-              const heightRatio = maxHeight / targetHeight;
-              const scale = Math.min(widthRatio, heightRatio, 1);
+              // Calculate original image size in mm at 300 DPI
+              const originalWidthMM = originalWidthPx / mmToPixels;
+              const originalHeightMM = originalHeightPx / mmToPixels;
               
-              targetWidth = targetWidth * scale;
-              targetHeight = targetHeight * scale;
+              // Calculate scale to fit available space (maintain aspect ratio)
+              const widthScale = maxWidthMM / originalWidthMM;
+              const heightScale = maxHeightMM / originalHeightMM;
+              const scale = Math.min(widthScale, heightScale, 1.0); // Never upscale (max 1.0)
               
-              // Render at MUCH HIGHER resolution for EXCELLENT clarity
-              const renderScale = 2.5; // Increased from 2.0 to 2.5 for maximum clarity
-              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 2000); // Increased max to 2000px
-              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 2000);
+              // Target dimensions in mm (physical size for PDF)
+              let targetWidthMM = originalWidthMM * scale;
+              let targetHeightMM = originalHeightMM * scale;
               
-              if (canvasWidth < 400) canvasWidth = 400; // Increased minimum for clarity
-              if (canvasHeight < 400) canvasHeight = 400;
+              // Ensure minimum size (100mm minimum)
+              if (targetWidthMM < 100) {
+                const adjustScale = 100 / targetWidthMM;
+                targetWidthMM = 100;
+                targetHeightMM = targetHeightMM * adjustScale;
+              }
+              if (targetHeightMM < 100) {
+                const adjustScale = 100 / targetHeightMM;
+                targetHeightMM = 100;
+                targetWidthMM = targetWidthMM * adjustScale;
+              }
+              
+              // Convert target mm to pixels at 300 DPI for canvas
+              let targetWidthPx = targetWidthMM * mmToPixels;
+              let targetHeightPx = targetHeightMM * mmToPixels;
+              
+              // NO OVER-SCALING: Use original image dimensions when possible
+              // If target is larger than original, use original (no upscaling)
+              if (targetWidthPx > originalWidthPx) {
+                targetWidthPx = originalWidthPx;
+                targetWidthMM = originalWidthMM;
+              }
+              if (targetHeightPx > originalHeightPx) {
+                targetHeightPx = originalHeightPx;
+                targetHeightMM = originalHeightMM;
+              }
+              
+              // Canvas size: Use target dimensions at 300 DPI (no arbitrary scaling)
+              let canvasWidth = Math.round(targetWidthPx);
+              let canvasHeight = Math.round(targetHeightPx);
+              
+              // Ensure reasonable minimum for quality (but don't force if original is smaller)
+              const minCanvasSize = 100 * mmToPixels; // 100mm at 300 DPI
+              if (canvasWidth < minCanvasSize && originalWidthPx >= minCanvasSize) {
+                canvasWidth = Math.min(minCanvasSize, originalWidthPx);
+              }
+              if (canvasHeight < minCanvasSize && originalHeightPx >= minCanvasSize) {
+                canvasHeight = Math.min(minCanvasSize, originalHeightPx);
+              }
+              
+              // Log quality settings
+              console.log(`Image quality settings (300 DPI print quality):`);
+              console.log(`  Original: ${originalWidthPx}x${originalHeightPx}px (${originalWidthMM.toFixed(1)}mm x ${originalHeightMM.toFixed(1)}mm)`);
+              console.log(`  Target: ${targetWidthMM.toFixed(1)}mm x ${targetHeightMM.toFixed(1)}mm (${targetWidthPx.toFixed(0)}px x ${targetHeightPx.toFixed(0)}px at 300 DPI)`);
+              console.log(`  Canvas: ${canvasWidth}x${canvasHeight}px (no over-scaling, maintains original quality)`);
+              console.log(`  Scale factor: ${scale.toFixed(3)} (${scale < 1 ? 'downscaled' : 'original size'})`);
               
               // Convert to canvas
               const canvas = document.createElement('canvas');
@@ -1867,33 +1919,76 @@ export default function EllendorfWallpaperApp() {
               canvas.height = canvasHeight;
               const ctx = canvas.getContext('2d');
               
+              // ========== SMART RENDERING - HIGH-QUALITY ALGORITHMS ==========
+              // Enable high-quality image smoothing for best results
               ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = 'high';
+              ctx.imageSmoothingQuality = 'high'; // Best quality algorithm
               
-              // Draw original image first at full quality
-              ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+              // Draw original image - NO OVER-SCALING
+              // If canvas is same size as original, draw 1:1 (best quality)
+              // If canvas is smaller, draw scaled (downscaling is fine)
+              if (canvasWidth === originalWidthPx && canvasHeight === originalHeightPx) {
+                // Perfect 1:1 match - draw directly (no scaling, maximum quality)
+                ctx.drawImage(img, 0, 0);
+              } else {
+                // Scale to fit canvas (downscaling only, maintains quality)
+                ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+              }
               
-              // ========== LUXURY HORIZONTAL STRIP WATERMARK ==========
+              // ========== SMART WATERMARKING - ADJUST BASED ON IMAGE BRIGHTNESS ==========
+              // Sample image brightness from center area
+              const sampleSize = 100;
+              const sampleX = (canvasWidth - sampleSize) / 2;
+              const sampleY = (canvasHeight - sampleSize) / 2;
+              const brightnessSample = ctx.getImageData(sampleX, sampleY, sampleSize, sampleSize);
+              const pixels = brightnessSample.data;
+              
+              // Calculate average brightness
+              let totalBrightness = 0;
+              for (let i = 0; i < pixels.length; i += 4) {
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+                totalBrightness += (r + g + b) / 3;
+              }
+              const avgBrightness = totalBrightness / (pixels.length / 4);
+              const isDarkImage = avgBrightness < 128; // Threshold for dark images
+              
+              console.log(`Image brightness: ${avgBrightness.toFixed(1)} (${isDarkImage ? 'Dark' : 'Light'})`);
+              
               const productCodeText = wp.productCode || "ELL-001";
               const collectionText = wp.subCategory?.name || wp.category?.name || "Premium Collection";
               
-              // Calculate font sizes based on canvas size
-              const stripFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.045, 24); // Larger, elegant size
-              const footerFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.014, 12); // Footer text
+              // Calculate font sizes based on canvas size (300 DPI aware)
+              const stripFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.045, 28); // Larger for 300 DPI
+              const footerFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.014, 14); // Footer text
               
               // ========== HORIZONTAL SEMI-TRANSPARENT STRIP ACROSS CENTER ==========
               ctx.save();
               
               // Soft dark overlay strip (not pure black) - luxury style
-              const stripHeight = Math.max(canvasHeight * 0.14, 70); // 14% of height, minimum 70px
+              const stripHeight = Math.max(canvasHeight * 0.14, 80); // 14% of height, minimum 80px
               const stripY = (canvasHeight - stripHeight) / 2; // Center vertically
+              
+              // Smart watermark color based on image brightness
+              let stripColor, textColor;
+              if (isDarkImage) {
+                // Dark image - use lighter watermark
+                stripColor = 'rgba(40, 40, 40, 0.70)'; // Lighter strip
+                textColor = "rgba(255, 255, 255, 1.0)"; // White text
+              } else {
+                // Light image - use darker watermark
+                stripColor = 'rgba(15, 15, 15, 0.75)'; // Darker strip
+                textColor = "rgba(255, 255, 255, 1.0)"; // White text
+              }
               
               // Draw semi-transparent dark overlay strip with gradient
               const gradient = ctx.createLinearGradient(0, stripY, 0, stripY + stripHeight);
-              gradient.addColorStop(0, 'rgba(15, 15, 15, 0.55)'); // Softer edges
-              gradient.addColorStop(0.3, 'rgba(20, 20, 20, 0.75)'); // Darker center
-              gradient.addColorStop(0.7, 'rgba(20, 20, 20, 0.75)');
-              gradient.addColorStop(1, 'rgba(15, 15, 15, 0.55)');
+              const baseAlpha = isDarkImage ? 0.60 : 0.70;
+              gradient.addColorStop(0, `rgba(15, 15, 15, ${baseAlpha - 0.15})`); // Softer edges
+              gradient.addColorStop(0.3, stripColor); // Center
+              gradient.addColorStop(0.7, stripColor);
+              gradient.addColorStop(1, `rgba(15, 15, 15, ${baseAlpha - 0.15})`);
               
               ctx.globalAlpha = 1.0;
               ctx.fillStyle = gradient;
@@ -1901,14 +1996,14 @@ export default function EllendorfWallpaperApp() {
               
               // Centered text on strip: "ELLENDORF – Textile Wall Coverings"
               ctx.globalAlpha = 1.0; // Full opacity for text
-              ctx.fillStyle = "rgba(255, 255, 255, 1.0)"; // Pure white for maximum contrast
+              ctx.fillStyle = textColor; // Smart color based on brightness
               ctx.font = `italic ${stripFontSize}px 'Times New Roman', serif`; // Elegant serif font
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               
               // Elegant text shadow for depth and luxury
-              ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-              ctx.shadowBlur = 8;
+              ctx.shadowColor = isDarkImage ? "rgba(0, 0, 0, 0.4)" : "rgba(0, 0, 0, 0.7)";
+              ctx.shadowBlur = 10;
               ctx.shadowOffsetX = 2;
               ctx.shadowOffsetY = 2;
               
@@ -1937,14 +2032,24 @@ export default function EllendorfWallpaperApp() {
               ctx.fillText("ELLENDORF Textile Wall Coverings", canvasWidth / 2, footerY - (footerFontSize * 1.6));
               ctx.restore();
               
-              // Convert to data URL with MAXIMUM quality for EXCELLENT clarity
-              const imageData = canvas.toDataURL('image/jpeg', 0.92); // Increased from 0.85 to 0.92 for maximum clarity
+              // ========== HIGH JPEG COMPRESSION - MINIMAL ARTIFACTS ==========
+              // Use very high quality (0.95) for minimal compression artifacts
+              // This ensures print-quality images with no visible artifacts
+              const jpegQuality = 0.95; // Very high quality, minimal compression
+              const finalImageData = canvas.toDataURL('image/jpeg', jpegQuality);
+              const imageSizeKB = (finalImageData.length / 1024).toFixed(2);
               
-              // Add image to PDF - PROPERLY ALIGNED
-              const x = (pageWidth - targetWidth) / 2;
+              console.log(`✓ Image processed successfully:`);
+              console.log(`  Canvas: ${canvasWidth}x${canvasHeight}px`);
+              console.log(`  Physical size: ${targetWidthMM.toFixed(1)}mm x ${targetHeightMM.toFixed(1)}mm at 300 DPI`);
+              console.log(`  JPEG quality: ${jpegQuality} (minimal compression artifacts)`);
+              console.log(`  Data size: ${imageSizeKB} KB`);
+              
+              // Add image to PDF - PROPERLY ALIGNED (using mm dimensions)
+              const x = (pageWidth - targetWidthMM) / 2; // Center horizontally
               imageY = 20; // Start from top with margin
-              imageHeight = targetHeight;
-              doc.addImage(imageData, 'JPEG', x, imageY, targetWidth, targetHeight);
+              imageHeight = targetHeightMM; // Use mm dimension
+              doc.addImage(finalImageData, 'JPEG', x, imageY, targetWidthMM, targetHeightMM);
               
               console.log(`✓ Image ${i + 1} added successfully with luxury watermark`);
               
@@ -2089,6 +2194,23 @@ export default function EllendorfWallpaperApp() {
       }
       
       console.log(`PDF generation complete! File size: ${pdfSizeKB} KB`);
+      
+      // Show success toast notification
+      toast.success(`PDF "${fileName}" downloaded successfully! (${pdfSizeKB} KB)`, {
+        duration: 5000,
+        position: "top-center",
+        style: {
+          background: '#10b981',
+          color: '#fff',
+          padding: '16px 24px',
+          borderRadius: '12px',
+          fontSize: '16px',
+          fontWeight: '500',
+        },
+        icon: '✅',
+      });
+      
+      // Also show alert as fallback
       alert(`PDF "${fileName}" downloaded successfully! (${pdfSizeKB} KB)`);
       
     } catch (error) {
