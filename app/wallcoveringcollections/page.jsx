@@ -2131,9 +2131,9 @@ export default function EllendorfWallpaperApp() {
           
       // Contact information
           doc.setFontSize(12);
-      doc.text("For inquiries or to place an order:", pageWidth / 2, pageHeight / 2 + 75, { align: "center" });
+      // doc.text("For inquiries or to place an order:", pageWidth / 2, pageHeight / 2 + 75, { align: "center" });
       doc.setFont("helvetica", "bold");
-      doc.text("Reimagine Walls", pageWidth / 2, pageHeight / 2 + 85, { align: "center" });
+      doc.text("Ellendorf", pageWidth / 2, pageHeight / 2 + 85, { align: "center" });
           
       // Final page number
       doc.setFontSize(8);
