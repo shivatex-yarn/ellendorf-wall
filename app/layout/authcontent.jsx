@@ -48,16 +48,16 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("auth");
     delete axios.defaults.headers.common["Authorization"];
     
-    // Clear user-specific shortlisted images from localStorage
+    // Clear user-specific shortlisted images from sessionStorage
     if (userId) {
       try {
-        localStorage.removeItem(`likedWallpapers_${userId}`);
+        sessionStorage.removeItem(`likedWallpapers_${userId}`);
       } catch (err) {
-        console.error("Failed to clear liked wallpapers from localStorage on logout:", err);
+        console.error("Failed to clear liked wallpapers from sessionStorage on logout:", err);
       }
     }
     
-    // Also clear sessionStorage for backward compatibility
+    // Also clear any legacy sessionStorage items
     try {
       sessionStorage.removeItem("likedWallpapers");
     } catch (err) {

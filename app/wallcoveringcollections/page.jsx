@@ -1254,29 +1254,27 @@ export default function EllendorfWallpaperApp() {
   const [error, setError] = useState(null);
   const id = useId();
 
-  // Load liked wallpapers from localStorage (per user ID, shared across sessions)
+  // Load liked wallpapers from sessionStorage (per browser session, completely separate)
+  // Always start with empty shortlist on login - clear any existing data
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       setLikedWallpapers([]);
       return;
     }
 
+    // Clear any existing shortlisted items on login to ensure fresh start
     const storageKey = `likedWallpapers_${user.id}`;
     try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setLikedWallpapers(parsed);
-      } else {
-        setLikedWallpapers([]);
-      }
+      sessionStorage.removeItem(storageKey);
+      sessionStorage.removeItem("likedWallpapers");
+      setLikedWallpapers([]);
     } catch (err) {
-      console.error("Failed to parse liked wallpapers:", err);
+      console.error("Failed to clear liked wallpapers on login:", err);
       setLikedWallpapers([]);
     }
   }, [isAuthenticated, user?.id]);
 
-  // Save liked wallpapers to localStorage (per user ID, shared across sessions)
+  // Save liked wallpapers to sessionStorage (per browser session, completely separate)
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       return;
@@ -1284,7 +1282,7 @@ export default function EllendorfWallpaperApp() {
 
     const storageKey = `likedWallpapers_${user.id}`;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(likedWallpapers));
+      sessionStorage.setItem(storageKey, JSON.stringify(likedWallpapers));
     } catch (err) {
       console.error("Failed to save liked wallpapers:", err);
     }
@@ -1298,7 +1296,7 @@ export default function EllendorfWallpaperApp() {
       setLikedWallpapers([]);
       try {
         if (userId) {
-          localStorage.removeItem(`likedWallpapers_${userId}`);
+          sessionStorage.removeItem(`likedWallpapers_${userId}`);
         }
         sessionStorage.removeItem("likedWallpapers");
       } catch (err) {
@@ -1317,7 +1315,7 @@ export default function EllendorfWallpaperApp() {
       try {
         // Clear all possible storage keys for safety
         if (user?.id) {
-          localStorage.removeItem(`likedWallpapers_${user.id}`);
+          sessionStorage.removeItem(`likedWallpapers_${user.id}`);
         }
         sessionStorage.removeItem("likedWallpapers");
       } catch (err) {
@@ -1373,7 +1371,7 @@ export default function EllendorfWallpaperApp() {
     setLikedWallpapers([]);
     try {
       if (user?.id) {
-        localStorage.removeItem(`likedWallpapers_${user.id}`);
+        sessionStorage.removeItem(`likedWallpapers_${user.id}`);
       }
       sessionStorage.removeItem("likedWallpapers");
     } catch (err) {

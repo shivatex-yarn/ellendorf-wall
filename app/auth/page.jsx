@@ -113,26 +113,37 @@ export default function Auth() {
       sessionStorage.setItem("userRole", user.role);
       sessionStorage.setItem("token", token);
 
+      // Clear any existing shortlisted items on login to ensure fresh start
+      try {
+        sessionStorage.removeItem(`likedWallpapers_${user.id}`);
+        sessionStorage.removeItem("likedWallpapers");
+      } catch (err) {
+        console.error("Failed to clear liked wallpapers on login:", err);
+      }
+
       login({ ...user, token });
 
-      toast.success(
-        <div className="flex flex-col gap-1">
-          <span className="font-bold">Welcome to Ellendorf</span>
-          <span className="text-sm opacity-90">Powered by Reimagine Wall </span>
-        </div>,
-        {
-          duration: 4000,
-          position: "top-center",
-          style: {
-            background: "linear-gradient(to right, #1e40af, #3b82f6)",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "16px 24px",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
-            minWidth: "320px",
-          },
-        }
-      );
+      // Delay the welcome toast by 5 seconds
+      setTimeout(() => {
+        toast.success(
+          <div className="flex flex-col gap-1">
+            <span className="font-bold">Welcome to Ellendorf</span>
+            <span className="text-sm opacity-90">Powered by Reimagine Wall</span>
+          </div>,
+          {
+            duration: 4000,
+            position: "top-center",
+            style: {
+              background: "linear-gradient(to right, #1e40af, #3b82f6)",
+              color: "#fff",
+              borderRadius: "12px",
+              padding: "16px 24px",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+              minWidth: "320px",
+            },
+          }
+        );
+      }, 5000); // 5 second delay
 
       // Small delay to show the success message before redirecting
       setTimeout(() => {
