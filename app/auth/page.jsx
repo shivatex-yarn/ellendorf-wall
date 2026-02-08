@@ -123,7 +123,7 @@ export default function Auth() {
 
       login({ ...user, token });
 
-      // Delay the welcome toast by 5 seconds
+      // Delay the welcome toast by 5 seconds, then it will auto-close after 5 seconds
       setTimeout(() => {
         toast.success(
           <div className="flex flex-col gap-1">
@@ -131,7 +131,7 @@ export default function Auth() {
             <span className="text-sm opacity-90">Powered by Reimagine Wall</span>
           </div>,
           {
-            duration: 4000,
+            duration: 5000, // Toast will close after 5 seconds
             position: "top-center",
             style: {
               background: "linear-gradient(to right, #1e40af, #3b82f6)",
@@ -143,7 +143,7 @@ export default function Auth() {
             },
           }
         );
-      }, 5000); // 5 second delay
+      }, 5000); // 5 second delay before showing
 
       // Small delay to show the success message before redirecting
       setTimeout(() => {
