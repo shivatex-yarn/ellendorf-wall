@@ -25,7 +25,7 @@ import toast from "react-hot-toast";
 // Import shared image loading utilities with retry logic
 import { imageCache, preloadImage, preloadImagesBatch } from '../../lib/imageLoader.js';
 import Image from "next/image";
-import { useAuth } from '../../layout/authcontent.jsx';
+import { useAuth } from '../layout/authcontent.jsx';
 
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
