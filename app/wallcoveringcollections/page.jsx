@@ -1559,7 +1559,7 @@ export default function EllendorfWallpaperApp() {
             
             img.onload = () => {
         cleanup();
-        console.log(`Image loaded successfully:`, imageUrl, img.width, 'x', img.height);
+        // console.log(`Image loaded successfully:`, imageUrl, img.width, 'x', img.height);
         resolve(img);
       };
       
@@ -1799,11 +1799,11 @@ export default function EllendorfWallpaperApp() {
       doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 8, { align: "center" });
   
       // ========== PROCESS EACH WALLPAPER WITH HIGH QUALITY ==========
-      console.log(`Processing ${likedWallpapers.length} wallpapers with HIGH QUALITY images...`);
+      // console.log(`Processing ${likedWallpapers.length} wallpapers with HIGH QUALITY images...`);
       
       for (let i = 0; i < likedWallpapers.length; i++) {
         const wp = likedWallpapers[i];
-        console.log(`Processing ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
+        // console.log(`Processing ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
         
         doc.addPage();
         
@@ -1823,7 +1823,7 @@ export default function EllendorfWallpaperApp() {
           
           if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
             try {
-              console.log(`Loading HIGH QUALITY image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
+              // console.log(`Loading HIGH QUALITY image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
               
               // Load image using robust loading function with retry logic
               const img = await loadImageForPDF(wp.imageUrl);
@@ -1936,7 +1936,7 @@ export default function EllendorfWallpaperApp() {
               // Add the high-quality image
               doc.addImage(imageData, 'JPEG', x, imageY, widthMM, heightMM);
               
-              console.log(`✓ HIGH QUALITY Image ${i + 1} added: ${widthMM.toFixed(1)}mm x ${heightMM.toFixed(1)}mm`);
+              // console.log(`✓ HIGH QUALITY Image ${i + 1} added: ${widthMM.toFixed(1)}mm x ${heightMM.toFixed(1)}mm`);
               
             } catch (imageError) {
               console.error(`✗ Error loading image ${i + 1}:`, imageError);
@@ -2089,12 +2089,12 @@ export default function EllendorfWallpaperApp() {
       doc.text(`Page ${likedWallpapers.length + 2} of ${likedWallpapers.length + 2}`, pageWidth / 2, pageHeight - 10, { align: "center" });
 
       // ========== SAVE PDF ==========
-      console.log('Saving HIGH QUALITY PDF...');
+      // console.log('Saving HIGH QUALITY PDF...');
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
       
       doc.save(fileName);
       
-      console.log('HIGH QUALITY PDF generation complete!');
+      // console.log('HIGH QUALITY PDF generation complete!');
       
       // Show success toast
       toast.success(`Luxury brochure downloaded successfully!`, {

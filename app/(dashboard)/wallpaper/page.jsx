@@ -357,64 +357,46 @@ export default function Wallpaper() {
       // Get wallpaper data
       const productCode = wallpaper.productCode || "ELL-001";
       
-      // ========== BOLD CENTER WATERMARK - ONLY "ELLENDORF — Textile Wall Coverings" ==========
+      // ========== GLASS-LIKE WHITE STRIP WATERMARK - MATCHES PDF STYLE ==========
       ctx.save();
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
       
-      // Calculate text to display - SINGLE LINE
-      const watermarkText = "ELLENDORF — Textile Wall Coverings";
+      // White overlay at center (14% of height, like PDF)
+      const watermarkHeight = Math.max(canvas.height * 0.14, 80); // 14% of height, minimum 80px
+      const watermarkY = (canvas.height - watermarkHeight) / 2; // Center vertically
       
-      // Set up text styling for bold center watermark
-      ctx.globalAlpha = 0.3; // 30% opacity - more visible for bold text
-      ctx.fillStyle = "#FFFFFF"; // White text
+      // White gradient overlay - GLASS EFFECT (TRANSPARENT LIKE GLASS)
+      const gradient = ctx.createLinearGradient(0, watermarkY, 0, watermarkY + watermarkHeight);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)'); // Very transparent edges
+      gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.35)'); // Center - glass-like transparency
+      gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.35)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0.25)'); // Very transparent edges
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, watermarkY, canvas.width, watermarkHeight);
+      
+      // Brand text on white background - CENTERED
+      const fontSize = Math.max(Math.min(canvas.width, canvas.height) * 0.045, 28); // Larger for visibility
+      ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Black text on white
+      ctx.font = `italic ${fontSize}px 'Times New Roman', serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       
-      // Add strong shadow for bold visibility
-      ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetX = 3;
-      ctx.shadowOffsetY = 3;
+      // Add subtle shadow for depth
+      ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
       
-      // Draw BOLD watermark text (single line, centered)
-      ctx.font = `bold ${baseFontSize}px 'Arial', sans-serif`; // BOLD ARIAL FONT
-      ctx.fillText(watermarkText, centerX, centerY);
+      // Watermark text - CENTERED on image
+      const centerY = canvas.height / 2;
+      ctx.fillText("ELLENDORF – Textile Wall Coverings", canvas.width / 2, centerY);
       
-      ctx.restore();
-      
-      // ========== PRODUCT CODE (bottom right corner) ==========
-      ctx.save();
-      ctx.globalAlpha = 0.6;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.font = `14px 'Courier New', monospace`;
-      ctx.textAlign = "right";
-      ctx.textBaseline = "bottom";
-      
-      const codeText = `${productCode}`;
-      const codeX = canvas.width - 20;
-      const codeY = canvas.height - 20;
-      
-      // Add a subtle background for the product code
-      const codeMetrics = ctx.measureText(codeText);
-      const codePadding = 8;
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-      ctx.fillRect(
-        codeX - codeMetrics.width - codePadding, 
-        codeY - 14 - codePadding/2, 
-        codeMetrics.width + codePadding*2, 
-        14 + codePadding
-      );
-      
-      // Draw the product code text
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillText(codeText, codeX, codeY);
       ctx.restore();
       
       // Convert to data URL with high quality - PERMANENT WATERMARK
-      console.log('Bold center watermark applied, converting to data URL...');
+      // console.log('Glass-like center watermark applied, converting to data URL...');
       const watermarkedImage = canvas.toDataURL('image/jpeg', 0.95); // High quality JPEG
-      console.log('Watermark processing complete - image is now permanently watermarked');
+      // console.log('Watermark processing complete - image is now permanently watermarked');
       
       return watermarkedImage;
       
@@ -425,7 +407,7 @@ export default function Wallpaper() {
   };
 
   const handleFullViewWithWatermark = async (wallpaper) => {
-    console.log(`Opening full view with BOLD CENTER watermark for: ${wallpaper.name}`);
+    // console.log(`Opening full view with glass-like center watermark for: ${wallpaper.name}`);
     
     try {
       setIsGeneratingPDF(true);
@@ -498,12 +480,9 @@ export default function Wallpaper() {
             <div class="loading-container">
               <div class="spinner"></div>
               <h2>ELLENDORF Textile Wall Coverings</h2>
-              <p>Applying bold center watermark to image...</p>
+              <p>Applying watermark to image...</p>
               <div class="watermark-preview">
                 <div class="watermark-text">ELLENDORF — Textile Wall Coverings</div>
-                <div style="font-size: 12px; margin-top: 15px; opacity: 0.7;">
-                  Watermark will be permanently embedded in the image center
-                </div>
               </div>
             </div>
           </body>
@@ -512,10 +491,10 @@ export default function Wallpaper() {
         loadingWindow.document.close();
       }
       
-      // Apply BOLD CENTER watermark - THIS PERMANENTLY EMBEDS WATERMARK IN IMAGE
-      console.log('Starting bold center watermark application...');
+      // Apply GLASS-LIKE CENTER watermark - THIS PERMANENTLY EMBEDS WATERMARK IN IMAGE
+      // console.log('Starting glass-like center watermark application...');
       const watermarkedImage = await applyEllendorfWatermark(wallpaper);
-      console.log('Bold center watermark application complete');
+      // console.log('Glass-like center watermark application complete');
       
       // Close loading window
       if (loadingWindow) {
@@ -538,7 +517,7 @@ export default function Wallpaper() {
                 box-sizing: border-box;
               }
               body {
-                background: #000;
+                background: #ffffff;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -553,7 +532,7 @@ export default function Wallpaper() {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background: #000;
+                background: #ffffff;
               }
               .watermarked-image {
                 max-width: 100%;
@@ -578,7 +557,7 @@ export default function Wallpaper() {
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                color: white;
+                color: #333;
                 font-size: 14px;
                 text-align: center;
                 opacity: 1;
@@ -594,25 +573,12 @@ export default function Wallpaper() {
                 left: 0;
                 right: 0;
                 text-align: center;
-                color: rgba(255, 255, 255, 0.8);
+                color: #666;
                 font-size: 12px;
                 padding: 10px;
-                background: rgba(0, 0, 0, 0.7);
-                backdrop-filter: blur(5px);
-                border-top: 1px solid rgba(255, 255, 255, 0.2);
               }
               .watermark-notice {
-                position: absolute;
-                top: 20px;
-                left: 0;
-                right: 0;
-                text-align: center;
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 13px;
-                padding: 10px;
-                background: rgba(0, 0, 0, 0.7);
-                backdrop-filter: blur(5px);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+                display: none;
               }
             </style>
           </head>
@@ -627,11 +593,8 @@ export default function Wallpaper() {
                 <div style="margin-bottom: 10px;">Loading watermarked image...</div>
                 <div style="font-size: 12px; opacity: 0.7;">${wallpaper.name}</div>
               </div>
-              <div class="watermark-notice">
-                 "ELLENDORF — Textile Wall Coverings" (centered, bold)
-              </div>
               <div class="download-info">
-         Ellendorf - Reimagine walls with our luxury textile wall coverings. Click image to zoom. Right-click to save (watermark is embedded).
+                Press ESC to escape
               </div>
             </div>
             <script>
