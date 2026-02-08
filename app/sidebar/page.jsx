@@ -142,10 +142,10 @@ export default function Sidebar() {
       {/* Mobile Toggle */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed z-50 top-4 left-4 inline-flex items-center p-2 rounded-lg sm:hidden bg-gray-800 text-white hover:bg-gray-700"
+        className="fixed z-50 top-4 left-4 inline-flex items-center justify-center p-3 rounded-xl sm:hidden bg-gray-800/95 backdrop-blur-md text-white hover:bg-gray-700 transition-all duration-300 shadow-xl hover:shadow-2xl border border-gray-700/50 hover:border-gray-600 hover:scale-105"
         aria-label={isOpen ? 'Close menu' : 'Open menu'}
       >
-        {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
       {/* Mobile Overlay */}
@@ -162,28 +162,32 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 w-64 h-screen transition-transform duration-300 ${
+        className={`fixed top-0 left-0 z-50 w-64 h-screen transition-all duration-500 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
-        } bg-gradient-to-b from-gray-900 to-gray-800 shadow-xl`}
+        } bg-gradient-to-b from-gray-900 via-gray-800 to-gray-800 shadow-2xl backdrop-blur-xl border-r border-gray-700/50`}
+        style={{
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), inset -1px 0 0 rgba(255, 255, 255, 0.05)'
+        }}
       >
-        <div className="h-full px-3 py-4 overflow-y-auto flex flex-col">
+        <div className="h-full px-4 py-6 overflow-y-auto flex flex-col scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
           {/* Header */}
-          <div className="px-4 py-6 mb-4 border-b border-gray-700">
-            <h2 className="text-xl font-bold text-white">
-              Reimagine <span className="text-blue-400">Wall</span>
+          <div className="px-4 py-8 mb-6 border-b border-gray-700/60 relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/5 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300"></div>
+            <h2 className="text-2xl font-bold text-white tracking-tight relative z-10">
+              Reimagine <span className="text-blue-400 drop-shadow-lg">Wall</span>
             </h2>
-            <p className="text-sm text-gray-400">Scot & Bel Studio</p>
-      </div>
+            <p className="text-sm text-gray-400 mt-2 font-light tracking-wide">Scot & Bel Studio</p>
+          </div>
 
           {/* Menu */}
-          <ul className="space-y-4 flex-1">
+          <ul className="space-y-6 flex-1">
             {sidebarSections.map((section) => (
               <li key={section.title}>
-                <h3 className="text-xs uppercase text-gray-500 font-semibold px-2 mb-2">
+                <h3 className="text-[10px] uppercase text-gray-500 font-semibold px-3 mb-3 tracking-wider letter-spacing-2">
                   {section.title}
                 </h3>
 
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {section.items.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.path);
@@ -192,15 +196,27 @@ export default function Sidebar() {
                       <li key={item.path}>
                         <Link
                           href={item.path}
-                          className={`flex items-center p-3 rounded-lg transition-colors ${
+                          className={`group flex items-center px-4 py-3.5 rounded-xl transition-all duration-300 ease-out relative overflow-hidden ${
                             active
-                              ? 'bg-gray-700 text-white'
-                              : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                              ? 'bg-gradient-to-r from-gray-700 to-gray-700/90 text-white shadow-lg shadow-gray-900/50 border border-gray-600/30'
+                              : 'text-gray-300 hover:bg-gray-700/60 hover:text-white hover:shadow-md hover:shadow-gray-900/30 border border-transparent hover:border-gray-700/30'
                           }`}
                           onClick={handleLinkClick}
                         >
-                          <Icon className="w-5 h-5 text-blue-400" />
-                          <span className="ml-3">{item.name}</span>
+                          {/* Active indicator */}
+                          {active && (
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 rounded-r-full shadow-lg shadow-blue-400/50"></div>
+                          )}
+                          {/* Hover effect overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                          <Icon className={`w-5 h-5 relative z-10 transition-all duration-300 ${
+                            active 
+                              ? 'text-blue-400 drop-shadow-lg scale-110' 
+                              : 'text-blue-400/80 group-hover:text-blue-400 group-hover:scale-110'
+                          }`} />
+                          <span className={`ml-3.5 relative z-10 font-medium transition-all duration-300 ${
+                            active ? 'text-white' : 'group-hover:text-white'
+                          }`}>{item.name}</span>
                         </Link>
                       </li>
                     );
@@ -211,21 +227,23 @@ export default function Sidebar() {
           </ul>
 
           {/* Logout Button */}
-          <div className="pt-3 mt-auto border-t border-gray-700">
+          <div className="pt-4 mt-auto border-t border-gray-700/60">
             <button
               onClick={() => setShowLogoutModal(true)}
-              className="w-full flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+              className="group w-full flex items-center px-4 py-3.5 rounded-xl text-gray-300 hover:bg-gradient-to-r hover:from-red-900/30 hover:to-red-800/20 hover:text-white transition-all duration-300 ease-out relative overflow-hidden border border-transparent hover:border-red-800/30 hover:shadow-lg hover:shadow-red-900/20"
             >
-              <LogOut className="w-5 h-5 text-red-400" />
-              <span className="ml-3">Logout</span>
+              {/* Hover effect overlay */}
+              <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <LogOut className="w-5 h-5 text-red-400 relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:drop-shadow-lg" />
+              <span className="ml-3.5 relative z-10 font-medium transition-all duration-300">Logout</span>
             </button>
             
             {/* Copyright Text */}
-            <div className="mt-4 pt-3 pb-20 border-t border-gray-700">
-              <div className="text-[10px] text-gray-500 text-center leading-tight">
-                <p className="mb-0.5">© {new Date().getFullYear()} Ellendorf. All rights reserved.</p>
-                <p className="mb-0.5 text-gray-400">Developed by internal team of Ellendorf</p>
-                <p className="text-gray-400">Version 1.1</p>
+            <div className="mt-6 pt-4 pb-20 border-t border-gray-700/60">
+              <div className="text-[10px] text-gray-500 text-center leading-tight space-y-0.5">
+                <p className="mb-0.5 font-light">© {new Date().getFullYear()} Ellendorf. All rights reserved.</p>
+                <p className="mb-0.5 text-gray-400 font-light">Developed by internal team of Ellendorf</p>
+                <p className="text-gray-400 font-light">Version 1.1</p>
               </div>
             </div>
           </div>
