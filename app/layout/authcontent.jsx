@@ -41,14 +41,32 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    // Get user ID before clearing user state
+    const userId = user?.id;
+    
     setUser(null);
     localStorage.removeItem("auth");
     delete axios.defaults.headers.common["Authorization"];
-    // Clear all shortlisted images from sessionStorage
+    
+    // Clear user-specific shortlisted images from localStorage
+    if (userId) {
+      try {
+        localStorage.removeItem(`likedWallpapers_${userId}`);
+      } catch (err) {
+        console.error("Failed to clear liked wallpapers from localStorage on logout:", err);
+      }
+    }
+    
+    // Also clear sessionStorage for backward compatibility
     try {
       sessionStorage.removeItem("likedWallpapers");
     } catch (err) {
-      console.error("Failed to clear liked wallpapers on logout:", err);
+      console.error("Failed to clear liked wallpapers from sessionStorage on logout:", err);
+    }
+    
+    // Dispatch custom event for immediate clearing in components
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('userLogout', { detail: { userId } }));
     }
   };
 

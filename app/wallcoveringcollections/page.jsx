@@ -1239,7 +1239,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
 
 export default function EllendorfWallpaperApp() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [wallpapers, setWallpapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
@@ -1254,51 +1254,77 @@ export default function EllendorfWallpaperApp() {
   const [error, setError] = useState(null);
   const id = useId();
 
-  // Load liked wallpapers from sessionStorage
+  // Load liked wallpapers from localStorage (per user ID, shared across sessions)
   useEffect(() => {
-    const stored = sessionStorage.getItem("likedWallpapers");
-    if (stored) {
-      try {
-        setLikedWallpapers(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to parse liked wallpapers:", err);
+    if (!isAuthenticated || !user?.id) {
+      setLikedWallpapers([]);
+      return;
+    }
+
+    const storageKey = `likedWallpapers_${user.id}`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setLikedWallpapers(parsed);
+      } else {
         setLikedWallpapers([]);
       }
+    } catch (err) {
+      console.error("Failed to parse liked wallpapers:", err);
+      setLikedWallpapers([]);
     }
-  }, []);
+  }, [isAuthenticated, user?.id]);
 
-  // Save liked wallpapers to sessionStorage
+  // Save liked wallpapers to localStorage (per user ID, shared across sessions)
   useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      return;
+    }
+
+    const storageKey = `likedWallpapers_${user.id}`;
     try {
-      sessionStorage.setItem("likedWallpapers", JSON.stringify(likedWallpapers));
+      localStorage.setItem(storageKey, JSON.stringify(likedWallpapers));
     } catch (err) {
       console.error("Failed to save liked wallpapers:", err);
     }
-  }, [likedWallpapers]);
+  }, [likedWallpapers, isAuthenticated, user?.id]);
 
-  // Clear liked wallpapers when user logs out
+  // Clear liked wallpapers immediately when user logs out (via custom event)
   useEffect(() => {
-    if (!isAuthenticated) {
+    const handleLogout = (event) => {
+      const { userId } = event.detail || {};
+      // Clear immediately for the logged out user
       setLikedWallpapers([]);
       try {
+        if (userId) {
+          localStorage.removeItem(`likedWallpapers_${userId}`);
+        }
         sessionStorage.removeItem("likedWallpapers");
       } catch (err) {
         console.error("Failed to clear liked wallpapers on logout:", err);
       }
-    }
-  }, [isAuthenticated]);
+    };
 
-  // Clear liked wallpapers when user logs out
+    window.addEventListener('userLogout', handleLogout);
+    return () => window.removeEventListener('userLogout', handleLogout);
+  }, []);
+
+  // Also clear when authentication state changes to false
   useEffect(() => {
     if (!isAuthenticated) {
       setLikedWallpapers([]);
       try {
+        // Clear all possible storage keys for safety
+        if (user?.id) {
+          localStorage.removeItem(`likedWallpapers_${user.id}`);
+        }
         sessionStorage.removeItem("likedWallpapers");
       } catch (err) {
-        console.error("Failed to clear liked wallpapers on logout:", err);
+        console.error("Failed to clear liked wallpapers on auth change:", err);
       }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.id]);
 
   // Handle escape key and body overflow
   useEffect(() => {
@@ -1346,6 +1372,9 @@ export default function EllendorfWallpaperApp() {
   const clearAllLiked = () => {
     setLikedWallpapers([]);
     try {
+      if (user?.id) {
+        localStorage.removeItem(`likedWallpapers_${user.id}`);
+      }
       sessionStorage.removeItem("likedWallpapers");
     } catch (err) {
       console.error("Failed to clear liked wallpapers:", err);
