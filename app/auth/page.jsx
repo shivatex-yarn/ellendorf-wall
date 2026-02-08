@@ -123,16 +123,22 @@ export default function Auth() {
 
       login({ ...user, token });
 
+      // Small delay to show the success message before redirecting
+      setTimeout(() => {
+        router.push("/wallcoveringcollections");
+      }, 1500);
+
       // Delay the welcome toast by 5 seconds, then it will auto-close after 5 seconds
       setTimeout(() => {
-        toast.success(
+        const toastId = toast.success(
           <div className="flex flex-col gap-1">
             <span className="font-bold">Welcome to Ellendorf</span>
             <span className="text-sm opacity-90">Powered by Reimagine Wall</span>
           </div>,
           {
-            duration: 5000, // Toast will close after 5 seconds
+            duration: 5000, // Toast will auto-close after 5 seconds
             position: "top-center",
+            id: "welcome-toast", // Unique ID to prevent duplicates
             style: {
               background: "linear-gradient(to right, #1e40af, #3b82f6)",
               color: "#fff",
@@ -143,12 +149,12 @@ export default function Auth() {
             },
           }
         );
+        
+        // Explicitly dismiss toast after 5 seconds to ensure it closes
+        setTimeout(() => {
+          toast.dismiss(toastId);
+        }, 5000);
       }, 5000); // 5 second delay before showing
-
-      // Small delay to show the success message before redirecting
-      setTimeout(() => {
-        router.push("/wallcoveringcollections");
-      }, 1500);
 
     } catch (error) {
       setIsLoading(false); // Stop loading on error

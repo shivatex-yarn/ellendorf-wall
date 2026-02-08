@@ -6,6 +6,8 @@ export default function ToastProvider() {
   return (
     <Toaster 
       position="top-center"
+      reverseOrder={false}
+      gutter={8}
       toastOptions={{
         duration: 5000,
         style: {
@@ -15,6 +17,15 @@ export default function ToastProvider() {
           borderRadius: '12px',
           fontSize: '16px',
           fontWeight: '500',
+        },
+        // Ensure toasts auto-close
+        className: '',
+        success: {
+          duration: 5000,
+          iconTheme: {
+            primary: '#10b981',
+            secondary: '#fff',
+          },
         },
       }}
     />
