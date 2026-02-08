@@ -437,7 +437,7 @@ export default function Wallpaper() {
           <!DOCTYPE html>
           <html>
           <head>
-            <title>Applying Bold Watermark - ELLENDORF</title>
+            <title>Applying Waterark - ELLENDORF</title>
             <style>
               body {
                 margin: 0;
@@ -650,14 +650,12 @@ export default function Wallpaper() {
                   }, 500);
                 }
                 
-                // Show watermark is embedded
-                console.log('Permanently watermarked image loaded');
-                console.log( "ELLENDORF — Textile Wall Coverings"');
+         
+              
               };
               
               // Initialize
               window.onload = function() {
-                console.log('Watermarked preview loaded');
                 window.focus();
               };
               
@@ -686,7 +684,6 @@ export default function Wallpaper() {
               // Right-click to save - ALLOW DEFAULT (watermark is embedded in image)
               document.addEventListener('contextmenu', function(e) {
                 // Watermark is already in the image data, so saving will include it
-                console.log('Right-click - Image contains permanent bold watermark');
               });
               
               // Auto-focus the window
@@ -694,7 +691,6 @@ export default function Wallpaper() {
               
               // Show watermark info after load
               setTimeout(() => {
-                console.log('Image ready for download with permanent bold center watermark');
               }, 1000);
             </script>
           </body>

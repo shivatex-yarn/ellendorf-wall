@@ -1720,15 +1720,21 @@ export default function EllendorfWallpaperApp() {
       doc.setTextColor(80, 80, 80);
       doc.text("Premium Wall Coverings", pageWidth / 2, titleY + 15, { align: "center" });
 
+      // "Reimagine Walls" text - PROMINENTLY DISPLAYED
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(150, 120, 80); // Gold/bronze color for luxury
+      doc.text("Reimagine Walls", pageWidth / 2, titleY + 25, { align: "center" });
+
       // Powered by text
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(120, 120, 120);
-      doc.text("Powered by Reimagine Walls", pageWidth / 2, titleY + 25, { align: "center" });
+      doc.text("Powered by Reimagine Walls", pageWidth / 2, titleY + 32, { align: "center" });
       
-      // Customer information box
-      const boxY = titleY + 40;
-      const boxHeight = 45;
+      // Customer information box - ENSURE ALL INFO IS VISIBLE
+      const boxY = titleY + 45;
+      const boxHeight = 50; // Increased height
       const boxWidth = pageWidth - 60;
       const boxX = (pageWidth - boxWidth) / 2;
       
@@ -1738,16 +1744,22 @@ export default function EllendorfWallpaperApp() {
       doc.setLineWidth(0.5);
       doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 3, 3);
       
-      doc.setFontSize(16);
+      // Customer name - BOLD AND PROMINENT
+      doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(40, 40, 40);
-      doc.text(`Client: ${customerName}`, pageWidth / 2, boxY + 12, { align: "center" });
+      doc.setTextColor(30, 30, 30);
+      doc.text(`Client: ${customerName}`, pageWidth / 2, boxY + 14, { align: "center" });
 
-      doc.setFontSize(11);
+      // Timestamp - CLEARLY VISIBLE
+      doc.setFontSize(12);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Generated: ${timestamp}`, pageWidth / 2, boxY + 22, { align: "center" });
-      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, boxY + 32, { align: "center" });
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Generated: ${timestamp}`, pageWidth / 2, boxY + 26, { align: "center" });
+      
+      // Total selections
+      doc.setFontSize(12);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, boxY + 38, { align: "center" });
       
       // Decorative dashed line
       doc.setDrawColor(200, 200, 200);
@@ -1811,27 +1823,27 @@ export default function EllendorfWallpaperApp() {
           doc.setLineWidth(0.3);
           doc.line(20, 15, pageWidth - 20, 15);
           
-          // Wallpaper name
+          // Wallpaper name - TITLE (PROMINENT)
           doc.setTextColor(30, 30, 30);
-          doc.setFontSize(22);
+          doc.setFontSize(24); // Increased from 22
           doc.setFont("times", "bold");
           const displayName = wp.name && wp.name.length > 50 
             ? wp.name.substring(0, 47) + "..." 
             : wp.name || "Untitled";
-          doc.text(displayName, pageWidth / 2, 28, { align: "center" });
+          doc.text(displayName, pageWidth / 2, 30, { align: "center" });
           
-          // Product code
-          doc.setFontSize(13);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(80, 80, 80);
-          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, 36, { align: "center" });
+          // Product code - CLEARLY VISIBLE
+          doc.setFontSize(14); // Increased from 13
+          doc.setFont("helvetica", "bold"); // Made bold
+          doc.setTextColor(60, 60, 60); // Darker for visibility
+          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, 38, { align: "center" });
           
-          // Collection
+          // Collection - VISIBLE
           if (wp.subCategory?.name) {
-            doc.setFontSize(11);
+            doc.setFontSize(12); // Increased from 11
             doc.setFont("helvetica", "italic");
-            doc.setTextColor(120, 120, 120);
-            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, 42, { align: "center" });
+            doc.setTextColor(100, 100, 100); // Darker for visibility
+            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, 45, { align: "center" });
           }
           
           // ========== LOAD AND ADD WALLPAPER IMAGE ==========
@@ -1862,13 +1874,13 @@ export default function EllendorfWallpaperApp() {
               targetWidth = targetWidth * scale;
               targetHeight = targetHeight * scale;
               
-              // Render at higher resolution for clarity
-              const renderScale = 1.5;
-              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 1200);
-              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 1200);
+              // Render at higher resolution for better clarity
+              const renderScale = 2.0; // Increased from 1.5 to 2.0 for better clarity
+              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 1600); // Increased max from 1200 to 1600
+              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 1600);
               
-              if (canvasWidth < 200) canvasWidth = 200;
-              if (canvasHeight < 200) canvasHeight = 200;
+              if (canvasWidth < 300) canvasWidth = 300; // Increased minimum
+              if (canvasHeight < 300) canvasHeight = 300;
               
               // Convert to canvas
               const canvas = document.createElement('canvas');
@@ -1878,10 +1890,54 @@ export default function EllendorfWallpaperApp() {
               
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
+              
+              // Draw original image first
               ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
               
-              // Convert to data URL with good quality (always JPEG, even if source was WEBP)
-              const imageData = canvas.toDataURL('image/jpeg', 0.70);
+              // ========== ADD LUXURY WATERMARK TO IMAGE ==========
+              const watermarkText = "ELLENDORF";
+              const productCodeText = wp.productCode || "ELL-001";
+              const collectionText = wp.subCategory?.name || wp.category?.name || "Premium Collection";
+              
+              // Calculate font sizes based on canvas size
+              const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.08; // Larger watermark
+              const footerFontSize = Math.min(canvasWidth, canvasHeight) * 0.015; // Footer text
+              
+              // Center watermark - subtle but visible
+              ctx.save();
+              ctx.globalAlpha = 0.15; // Subtle watermark
+              ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+              ctx.font = `bold ${baseFontSize}px 'Times New Roman', serif`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+              ctx.shadowBlur = 8;
+              ctx.shadowOffsetX = 2;
+              ctx.shadowOffsetY = 2;
+              ctx.fillText(watermarkText, canvasWidth / 2, canvasHeight / 2);
+              ctx.restore();
+              
+              // Footer watermark at bottom - product code and collection
+              ctx.save();
+              ctx.globalAlpha = 0.7;
+              ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+              ctx.font = `${footerFontSize}px 'Times New Roman', serif`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "bottom";
+              ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+              ctx.shadowBlur = 4;
+              ctx.shadowOffsetX = 1;
+              ctx.shadowOffsetY = 1;
+              
+              // Footer text at bottom center
+              const footerY = canvasHeight - 15;
+              ctx.fillText(`${productCodeText} • ${collectionText}`, canvasWidth / 2, footerY);
+              ctx.font = `italic ${footerFontSize * 0.9}px 'Times New Roman', serif`;
+              ctx.fillText("ELLENDORF Textile Wall Coverings", canvasWidth / 2, footerY - (footerFontSize * 1.5));
+              ctx.restore();
+              
+              // Convert to data URL with HIGHER quality for better clarity
+              const imageData = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.70 to 0.85 for better clarity
               
               // Add image to PDF
               const x = (pageWidth - targetWidth) / 2;
@@ -1925,7 +1981,7 @@ export default function EllendorfWallpaperApp() {
           doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
           
           doc.setFontSize(8);
-                doc.setFont("helvetica", "italic");
+          doc.setFont("helvetica", "italic");
           doc.setTextColor(180, 180, 180);
           doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 8, { align: "center" });
           
