@@ -147,7 +147,7 @@ export default function Wallpaper() {
           }, 1000);
         }
         
-        console.log(`Loaded ${activeOnly.length} wallpapers, preloading ${firstBatch.length} priority images`);
+        // console.log(`Loaded ${activeOnly.length} wallpapers, preloading ${firstBatch.length} priority images`);
       } catch (err) {
         console.error('Error fetching wallpapers:', err);
         setError('Unable to load collection. Please try again.');
@@ -301,7 +301,7 @@ export default function Wallpaper() {
 
   // BOLD CENTER WATERMARK FUNCTION - Only "ELLENDORF — Textile Wall Coverings"
   const applyEllendorfWatermark = async (wallpaper) => {
-    console.log(`Applying BOLD CENTER watermark to single image: ${wallpaper.name}`);
+    // console.log(`Applying glass-like center watermark to single image: ${wallpaper.name}`);
     
     try {
       // Create a new Image object - ALWAYS use window.Image to avoid conflict with next/image
@@ -318,7 +318,7 @@ export default function Wallpaper() {
         
         img.onload = () => {
           clearTimeout(timeoutId);
-          console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+          // console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
           resolve(img);
         };
         
@@ -818,7 +818,7 @@ export default function Wallpaper() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+    <div className="min-h-screen bg-white">
       <header className="sticky ">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -831,10 +831,7 @@ export default function Wallpaper() {
         </div>
       </header>
 
-      <section className="relative min-h-[40vh] flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-blue-50/30"></div>
-        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-gradient-to-br from-indigo-400/10 to-blue-600/10 rounded-full blur-3xl"></div>
+      <section className="relative min-h-[40vh] flex items-center justify-center overflow-hidden bg-white">
         
         <div className="container mx-auto px-6 relative z-10">            
           <div className="max-w-5xl mx-auto text-center">

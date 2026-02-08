@@ -1485,7 +1485,7 @@ export default function EllendorfWallpaperApp() {
   const convertWebPToJPEG = async (blob) => {
     return new Promise((resolve, reject) => {
       if (blob.type === 'image/webp') {
-        console.log('Converting WEBP to JPEG...');
+        // console.log('Converting WEBP to JPEG...');
         const img = new window.Image();
         img.crossOrigin = "anonymous";
         
@@ -1503,7 +1503,7 @@ export default function EllendorfWallpaperApp() {
             canvas.toBlob((jpegBlob) => {
               URL.revokeObjectURL(objectUrl);
               if (jpegBlob) {
-                console.log('WEBP converted to JPEG successfully');
+                // console.log('WEBP converted to JPEG successfully');
                 resolve(jpegBlob);
               } else {
                 reject(new Error('Failed to convert WEBP to JPEG'));
