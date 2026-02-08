@@ -1810,8 +1810,8 @@ export default function EllendorfWallpaperApp() {
         try {
           // Cream background
           doc.setFillColor(...COLORS.cream);
-          doc.rect(0, 0, pageWidth, pageHeight, "F");
-  
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+
           // Gold border
           doc.setDrawColor(...COLORS.gold);
           doc.setLineWidth(0.5);
@@ -1883,38 +1883,40 @@ export default function EllendorfWallpaperApp() {
               // Draw image at high quality
               ctx.drawImage(img, 0, 0, finalCanvasWidth, finalCanvasHeight);
               
-              // ========== WHITE BACKGROUND WATERMARK ==========
-              // Add elegant white semi-transparent overlay at bottom
+              // ========== WHITE BACKGROUND WATERMARK - CENTERED ==========
+              // Add elegant white semi-transparent overlay at CENTER of image
               ctx.save();
               
-              // White overlay at bottom (30% of height)
-              const watermarkHeight = finalCanvasHeight * 0.15;
-              const watermarkY = finalCanvasHeight - watermarkHeight;
+              // White overlay at center (14% of height, like original design)
+              const watermarkHeight = Math.max(finalCanvasHeight * 0.14, 80); // 14% of height, minimum 80px
+              const watermarkY = (finalCanvasHeight - watermarkHeight) / 2; // Center vertically
               
               // White gradient overlay - LOW TRANSPARENCY (HIGH OPACITY)
-              const gradient = ctx.createLinearGradient(0, watermarkY, 0, finalCanvasHeight);
-              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.92)'); // Increased from 0.7 to 0.92
-              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.98)'); // Increased from 0.9 to 0.98
+              const gradient = ctx.createLinearGradient(0, watermarkY, 0, watermarkY + watermarkHeight);
+              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)'); // Softer edges
+              gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.92)'); // Center - more opaque
+              gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.92)');
+              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.85)'); // Softer edges
               
               ctx.fillStyle = gradient;
               ctx.fillRect(0, watermarkY, finalCanvasWidth, watermarkHeight);
               
-              // Brand text on white background
-              const fontSize = Math.min(finalCanvasWidth, finalCanvasHeight) * 0.025;
-              ctx.fillStyle = "rgba(0, 0, 0, 0.8)"; // Black text on white
+              // Brand text on white background - CENTERED
+              const fontSize = Math.max(Math.min(finalCanvasWidth, finalCanvasHeight) * 0.045, 28); // Larger for visibility
+              ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Black text on white
               ctx.font = `italic ${fontSize}px 'Times New Roman', serif`;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               
               // Add subtle shadow for depth
-              ctx.shadowColor = "rgba(0, 0, 0, 0.1)";
-              ctx.shadowBlur = 3;
+              ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
+              ctx.shadowBlur = 4;
               ctx.shadowOffsetX = 1;
               ctx.shadowOffsetY = 1;
               
-              // Watermark text
-              const textY = watermarkY + watermarkHeight / 2;
-              ctx.fillText("ELLENDORF Textile Wall Coverings", finalCanvasWidth / 2, textY);
+              // Watermark text - CENTERED on image
+              const centerY = finalCanvasHeight / 2;
+              ctx.fillText("ELLENDORF – Textile Wall Coverings", finalCanvasWidth / 2, centerY);
               
               ctx.restore();
               
@@ -1952,7 +1954,7 @@ export default function EllendorfWallpaperApp() {
           
           // White box with shadow effect
           doc.setFillColor(...COLORS.white);
-          doc.setDrawColor(230, 230, 230);
+                doc.setDrawColor(230, 230, 230);
           doc.setLineWidth(0.5);
           doc.roundedRect(infoBoxX, textStartY, infoBoxWidth, infoBoxHeight, 5, 5, 'FD');
           
@@ -1961,8 +1963,8 @@ export default function EllendorfWallpaperApp() {
           doc.roundedRect(infoBoxX, textStartY, infoBoxWidth, infoBoxHeight, 5, 5, 'F');
           
           // Product name - LUXURY STYLING
-          const displayName = wp.name && wp.name.length > 50 
-            ? wp.name.substring(0, 47) + "..." 
+                const displayName = wp.name && wp.name.length > 50 
+                  ? wp.name.substring(0, 47) + "..." 
             : wp.name || "Exclusive Design";
           
           doc.setTextColor(...COLORS.black);
@@ -2012,12 +2014,12 @@ export default function EllendorfWallpaperApp() {
   
           // Client name (left)
           doc.setFontSize(9);
-          doc.setFont("helvetica", "normal");
+                doc.setFont("helvetica", "normal");
           doc.setTextColor(120, 120, 120);
           doc.text(`Client: ${customerName}`, 40, pageHeight - 20);
   
           // Page number (center)
-          doc.setFont("helvetica", "italic");
+                doc.setFont("helvetica", "italic");
           doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 20, { align: "center" });
   
           // Timestamp (right)
@@ -2070,22 +2072,22 @@ export default function EllendorfWallpaperApp() {
       doc.text(`Dear ${customerName},`, pageWidth / 2, pageHeight / 2 + 30, { align: "center" });
       
       doc.setFontSize(14);
-      doc.setFont("helvetica", "normal");
+          doc.setFont("helvetica", "normal");
       doc.text("Thank you for choosing our Luxury Collection.", pageWidth / 2, pageHeight / 2 + 45, { align: "center" });
       doc.text("We appreciate your interest in our premium wall coverings.", pageWidth / 2, pageHeight / 2 + 55, { align: "center" });
-      
+          
       // Contact information
-      doc.setFontSize(12);
+          doc.setFontSize(12);
       doc.text("For inquiries or to place an order:", pageWidth / 2, pageHeight / 2 + 75, { align: "center" });
       doc.setFont("helvetica", "bold");
       doc.text("Reimagine Walls", pageWidth / 2, pageHeight / 2 + 85, { align: "center" });
-      
+          
       // Final page number
       doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(150, 150, 150);
+          doc.setTextColor(150, 150, 150);
       doc.text(`Page ${likedWallpapers.length + 2} of ${likedWallpapers.length + 2}`, pageWidth / 2, pageHeight - 10, { align: "center" });
-  
+
       // ========== SAVE PDF ==========
       console.log('Saving HIGH QUALITY PDF...');
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
