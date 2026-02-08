@@ -222,12 +222,12 @@ export default function Sidebar() {
             
             {/* Copyright Text */}
             <div className="mt-4 pt-3 border-t border-gray-700">
-            <p className="text-sm text-slate-400">
+              <p className="text-sm text-gray-500 text-center leading-relaxed">
                 © {new Date().getFullYear()} Ellendorf. All rights reserved.
-              <br />
-     
-    
-                <span className="text-gray-500">Version 1.1</span>
+                <br />
+                Developed by internal team of Ellendorf
+                <br />
+                <span className="text-gray-400">Version 1.1</span>
               </p>
             </div>
           </div>
