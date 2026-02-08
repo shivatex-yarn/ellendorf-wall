@@ -1562,7 +1562,7 @@ export default function EllendorfWallpaperApp() {
       
       img.onerror = (error) => {
         cleanup();
-        if (retryCount < maxRetries) {
+            if (retryCount < maxRetries) {
           console.log(`Image load error, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
           setTimeout(() => {
             loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
@@ -1610,7 +1610,7 @@ export default function EllendorfWallpaperApp() {
     try {
       const img = await loadImageForPDF('/assets/brand.png', 0, 3);
       return img;
-    } catch (error) {
+        } catch (error) {
       console.warn('Brand image failed to load, continuing without it:', error);
       return null;
     }
@@ -1815,51 +1815,30 @@ export default function EllendorfWallpaperApp() {
         
         try {
           // White background
-        doc.setFillColor(255, 255, 255);
-        doc.rect(0, 0, pageWidth, pageHeight, "F");
-        
-          // Decorative top border
-        doc.setDrawColor(240, 240, 240);
-          doc.setLineWidth(0.3);
-          doc.line(20, 15, pageWidth - 20, 15);
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+          // Decorative top border - LUXURY STYLE
+          doc.setDrawColor(200, 180, 150); // Gold accent
+          doc.setLineWidth(0.5);
+          doc.line(20, 12, pageWidth - 20, 12);
           
-          // Wallpaper name - TITLE (PROMINENT)
-          doc.setTextColor(30, 30, 30);
-          doc.setFontSize(24); // Increased from 22
-          doc.setFont("times", "bold");
-          const displayName = wp.name && wp.name.length > 50 
-            ? wp.name.substring(0, 47) + "..." 
-            : wp.name || "Untitled";
-          doc.text(displayName, pageWidth / 2, 30, { align: "center" });
-          
-          // Product code - CLEARLY VISIBLE
-          doc.setFontSize(14); // Increased from 13
-          doc.setFont("helvetica", "bold"); // Made bold
-          doc.setTextColor(60, 60, 60); // Darker for visibility
-          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, 38, { align: "center" });
-          
-          // Collection - VISIBLE
-          if (wp.subCategory?.name) {
-            doc.setFontSize(12); // Increased from 11
-            doc.setFont("helvetica", "italic");
-            doc.setTextColor(100, 100, 100); // Darker for visibility
-            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, 45, { align: "center" });
-          }
-          
-          // ========== LOAD AND ADD WALLPAPER IMAGE ==========
+          // ========== LOAD AND ADD WALLPAPER IMAGE FIRST ==========
           // CRITICAL: Abort PDF if image fails to load
+          let imageY = 0;
+          let imageHeight = 0;
+          
           if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
             try {
               console.log(`Loading image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
               console.log(`Image URL: ${wp.imageUrl}`);
               
               // Load image with retry logic - CRITICAL
-              // If this fails, we abort the entire PDF generation
               const img = await loadImageForPDF(wp.imageUrl);
               
-              // Calculate dimensions
-              const maxWidth = pageWidth - 30;
-              const maxHeight = pageHeight - 100;
+              // Calculate dimensions - MORE SPACE FOR IMAGE
+              const maxWidth = pageWidth - 40; // More margin
+              const maxHeight = pageHeight - 140; // More space for text below
               
               let originalWidth = img.naturalWidth || img.width || 1200;
               let originalHeight = img.naturalHeight || img.height || 900;
@@ -1874,13 +1853,13 @@ export default function EllendorfWallpaperApp() {
               targetWidth = targetWidth * scale;
               targetHeight = targetHeight * scale;
               
-              // Render at higher resolution for better clarity
-              const renderScale = 2.0; // Increased from 1.5 to 2.0 for better clarity
-              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 1600); // Increased max from 1200 to 1600
-              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 1600);
+              // Render at MUCH HIGHER resolution for EXCELLENT clarity
+              const renderScale = 2.5; // Increased from 2.0 to 2.5 for maximum clarity
+              let canvasWidth = Math.min(Math.round(targetWidth * renderScale), 2000); // Increased max to 2000px
+              let canvasHeight = Math.min(Math.round(targetHeight * renderScale), 2000);
               
-              if (canvasWidth < 300) canvasWidth = 300; // Increased minimum
-              if (canvasHeight < 300) canvasHeight = 300;
+              if (canvasWidth < 400) canvasWidth = 400; // Increased minimum for clarity
+              if (canvasHeight < 400) canvasHeight = 400;
               
               // Convert to canvas
               const canvas = document.createElement('canvas');
@@ -1891,105 +1870,154 @@ export default function EllendorfWallpaperApp() {
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
               
-              // Draw original image first
+              // Draw original image first at full quality
               ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
               
-              // ========== ADD LUXURY WATERMARK TO IMAGE ==========
-              const watermarkText = "ELLENDORF";
+              // ========== LUXURY HORIZONTAL STRIP WATERMARK ==========
               const productCodeText = wp.productCode || "ELL-001";
               const collectionText = wp.subCategory?.name || wp.category?.name || "Premium Collection";
               
               // Calculate font sizes based on canvas size
-              const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.08; // Larger watermark
-              const footerFontSize = Math.min(canvasWidth, canvasHeight) * 0.015; // Footer text
+              const stripFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.045, 24); // Larger, elegant size
+              const footerFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.014, 12); // Footer text
               
-              // Center watermark - subtle but visible
+              // ========== HORIZONTAL SEMI-TRANSPARENT STRIP ACROSS CENTER ==========
               ctx.save();
-              ctx.globalAlpha = 0.15; // Subtle watermark
-              ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-              ctx.font = `bold ${baseFontSize}px 'Times New Roman', serif`;
+              
+              // Soft dark overlay strip (not pure black) - luxury style
+              const stripHeight = Math.max(canvasHeight * 0.14, 70); // 14% of height, minimum 70px
+              const stripY = (canvasHeight - stripHeight) / 2; // Center vertically
+              
+              // Draw semi-transparent dark overlay strip with gradient
+              const gradient = ctx.createLinearGradient(0, stripY, 0, stripY + stripHeight);
+              gradient.addColorStop(0, 'rgba(15, 15, 15, 0.55)'); // Softer edges
+              gradient.addColorStop(0.3, 'rgba(20, 20, 20, 0.75)'); // Darker center
+              gradient.addColorStop(0.7, 'rgba(20, 20, 20, 0.75)');
+              gradient.addColorStop(1, 'rgba(15, 15, 15, 0.55)');
+              
+              ctx.globalAlpha = 1.0;
+              ctx.fillStyle = gradient;
+              ctx.fillRect(0, stripY, canvasWidth, stripHeight);
+              
+              // Centered text on strip: "ELLENDORF – Textile Wall Coverings"
+              ctx.globalAlpha = 1.0; // Full opacity for text
+              ctx.fillStyle = "rgba(255, 255, 255, 1.0)"; // Pure white for maximum contrast
+              ctx.font = `italic ${stripFontSize}px 'Times New Roman', serif`; // Elegant serif font
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
-              ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+              
+              // Elegant text shadow for depth and luxury
+              ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
               ctx.shadowBlur = 8;
               ctx.shadowOffsetX = 2;
               ctx.shadowOffsetY = 2;
-              ctx.fillText(watermarkText, canvasWidth / 2, canvasHeight / 2);
+              
+              // Main text: "ELLENDORF – Textile Wall Coverings"
+              const centerY = canvasHeight / 2;
+              ctx.fillText("ELLENDORF – Textile Wall Coverings", canvasWidth / 2, centerY);
+              
               ctx.restore();
               
-              // Footer watermark at bottom - product code and collection
+              // ========== FOOTER WATERMARK AT BOTTOM ==========
               ctx.save();
-              ctx.globalAlpha = 0.7;
-              ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+              ctx.globalAlpha = 0.85; // More visible
+              ctx.fillStyle = "rgba(255, 255, 255, 1.0)";
               ctx.font = `${footerFontSize}px 'Times New Roman', serif`;
               ctx.textAlign = "center";
               ctx.textBaseline = "bottom";
-              ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-              ctx.shadowBlur = 4;
+              ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+              ctx.shadowBlur = 5;
               ctx.shadowOffsetX = 1;
               ctx.shadowOffsetY = 1;
               
               // Footer text at bottom center
-              const footerY = canvasHeight - 15;
+              const footerY = canvasHeight - 20;
               ctx.fillText(`${productCodeText} • ${collectionText}`, canvasWidth / 2, footerY);
-              ctx.font = `italic ${footerFontSize * 0.9}px 'Times New Roman', serif`;
-              ctx.fillText("ELLENDORF Textile Wall Coverings", canvasWidth / 2, footerY - (footerFontSize * 1.5));
+              ctx.font = `italic ${footerFontSize * 0.95}px 'Times New Roman', serif`;
+              ctx.fillText("ELLENDORF Textile Wall Coverings", canvasWidth / 2, footerY - (footerFontSize * 1.6));
               ctx.restore();
               
-              // Convert to data URL with HIGHER quality for better clarity
-              const imageData = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.70 to 0.85 for better clarity
+              // Convert to data URL with MAXIMUM quality for EXCELLENT clarity
+              const imageData = canvas.toDataURL('image/jpeg', 0.92); // Increased from 0.85 to 0.92 for maximum clarity
               
-              // Add image to PDF
+              // Add image to PDF - PROPERLY ALIGNED
               const x = (pageWidth - targetWidth) / 2;
-              const y = 50;
-              doc.addImage(imageData, 'JPEG', x, y, targetWidth, targetHeight);
+              imageY = 20; // Start from top with margin
+              imageHeight = targetHeight;
+              doc.addImage(imageData, 'JPEG', x, imageY, targetWidth, targetHeight);
               
-              console.log(`✓ Image ${i + 1} added successfully`);
+              console.log(`✓ Image ${i + 1} added successfully with luxury watermark`);
               
             } catch (imageError) {
               console.error(`✗ CRITICAL ERROR: Failed to load image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
-              console.error(`Image URL: ${wp.imageUrl}`);
-              
-              // ABORT PDF GENERATION - Image failed to load
-              throw new Error(`Failed to load image for "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted. Please check image URL: ${wp.imageUrl}`);
+              throw new Error(`Failed to load image for "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted.`);
             }
           } else {
-            // No image URL - ABORT PDF
             throw new Error(`No image URL for wallpaper "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted.`);
           }
           
-          // Brand image at bottom left of every page (small)
+          // ========== TITLE AND PRODUCT CODE BELOW IMAGE ==========
+          // Position text below the image with proper spacing
+          const textStartY = imageY + imageHeight + 15; // 15mm gap after image
+          
+          // Wallpaper name - TITLE (LARGER, MORE PROMINENT)
+          doc.setTextColor(25, 25, 25);
+          doc.setFontSize(28); // Increased from 24 to 28 for luxury feel
+          doc.setFont("times", "bold");
+          const displayName = wp.name && wp.name.length > 45 
+            ? wp.name.substring(0, 42) + "..." 
+            : wp.name || "Untitled";
+          doc.text(displayName, pageWidth / 2, textStartY, { align: "center" });
+          
+          // Product code - LARGER AND BOLD
+          doc.setFontSize(16); // Increased from 14 to 16
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(50, 50, 50); // Darker for visibility
+          doc.text(`Product Code: ${wp.productCode || "N/A"}`, pageWidth / 2, textStartY + 10, { align: "center" });
+          
+          // Collection - VISIBLE AND ELEGANT
+          if (wp.subCategory?.name) {
+            doc.setFontSize(13); // Increased from 12 to 13
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(90, 90, 90);
+            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, textStartY + 18, { align: "center" });
+          }
+          
+          // Brand image at bottom left of every page (small) - PROPERLY POSITIONED
           if (brandImageData) {
             try {
-              const smallBrandWidth = 20; // mm - small size
+              const smallBrandWidth = 22; // mm - slightly larger for visibility
               const smallBrandHeight = (smallBrandWidth * brandImg.height) / brandImg.width;
-              doc.addImage(brandImageData, 'PNG', 10, pageHeight - smallBrandHeight - 25, smallBrandWidth, smallBrandHeight);
-        } catch (err) {
+              const brandX = 12; // Left margin
+              const brandY = pageHeight - smallBrandHeight - 35; // Above footer
+              doc.addImage(brandImageData, 'PNG', brandX, brandY, smallBrandWidth, smallBrandHeight);
+            } catch (err) {
               console.warn('Failed to add brand image to page:', err);
             }
           }
           
-          // Decorative bottom border
-          doc.setDrawColor(240, 240, 240);
-          doc.setLineWidth(0.3);
-          doc.line(20, pageHeight - 25, pageWidth - 20, pageHeight - 25);
+          // Decorative bottom border - LUXURY STYLE (above footer)
+          doc.setDrawColor(200, 180, 150); // Gold accent
+          doc.setLineWidth(0.5);
+          const borderY = pageHeight - 32;
+          doc.line(20, borderY, pageWidth - 20, borderY);
           
-          // Footer
-          doc.setFontSize(9);
+          // Footer - PROPERLY ALIGNED
+          doc.setFontSize(10); // Slightly larger
                 doc.setFont("helvetica", "normal");
-          doc.setTextColor(150, 150, 150);
-          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
+          doc.setTextColor(140, 140, 140);
+          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 18, { align: "center" });
           
-          doc.setFontSize(8);
+          doc.setFontSize(9); // Slightly larger
           doc.setFont("helvetica", "italic");
-          doc.setTextColor(180, 180, 180);
-          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 8, { align: "center" });
+          doc.setTextColor(160, 160, 160);
+          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 10, { align: "center" });
           
         } catch (pageError) {
           console.error(`Error on page ${i + 1}:`, pageError);
           
           doc.setFontSize(14);
-          doc.setFont("helvetica", "normal");
+                doc.setFont("helvetica", "normal");
           doc.setTextColor(200, 0, 0);
           doc.text(`Error loading wallpaper: ${wp.name || wp.productCode}`, 10, 20);
           doc.text("Continuing with remaining wallpapers...", 10, 30);
