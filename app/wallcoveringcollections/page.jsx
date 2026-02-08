@@ -1621,12 +1621,32 @@ export default function EllendorfWallpaperApp() {
 
   const downloadAllAsPDF = async (customerName) => {
     if (!customerName || !customerName.trim()) {
-      alert("Please enter a customer name");
+      toast.error("Please enter a customer name", {
+        duration: 3000,
+        position: "top-right",
+        style: {
+          background: '#dc2626',
+          color: '#fff',
+          padding: '16px 20px',
+          borderRadius: '8px',
+          fontSize: '14px',
+        },
+      });
       return;
     }
   
     if (!likedWallpapers || likedWallpapers.length === 0) {
-      alert("Please select at least one wallpaper to download");
+      toast.error("Please select at least one wallpaper to download", {
+        duration: 3000,
+        position: "top-right",
+        style: {
+          background: '#dc2626',
+          color: '#fff',
+          padding: '16px 20px',
+          borderRadius: '8px',
+          fontSize: '14px',
+        },
+      });
       setIsGeneratingPDF(false);
       return;
     }
@@ -1708,7 +1728,7 @@ export default function EllendorfWallpaperApp() {
       const logoBottomY = brandImageData ? (40 + (80 * brandImg.height / brandImg.width) + 20) : 40;
       
       // Customer information box - ENSURE ALL INFO IS VISIBLE
-      const boxY = titleY + 45;
+      const boxY = logoBottomY + 20; // Position below logo with spacing
       const boxHeight = 50; // Increased height
       const boxWidth = pageWidth - 60;
       const boxX = (pageWidth - boxWidth) / 2;
@@ -2198,9 +2218,20 @@ export default function EllendorfWallpaperApp() {
         console.warn('Cleanup error:', cleanupError);
       }
       
-      // Show detailed error message
+      // Show detailed error message with toast
       const errorMessage = error.message || "PDF generation failed";
-      alert(`PDF Generation ABORTED\n\n${errorMessage}\n\nPlease ensure:\n- All images are accessible\n- CORS is properly configured on your image server\n- Images are in supported formats (JPG, PNG, WEBP)\n\nPlease try again after fixing the issue.`);
+      toast.error(`PDF Generation Failed: ${errorMessage}`, {
+        duration: 6000,
+        position: "top-right",
+        style: {
+          background: '#dc2626',
+          color: '#fff',
+          padding: '16px 20px',
+          borderRadius: '8px',
+          fontSize: '14px',
+          maxWidth: '400px',
+        },
+      });
       
       // Don't download partial PDF - abort completely
       throw error; // Re-throw to prevent any download
