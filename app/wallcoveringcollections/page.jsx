@@ -1650,11 +1650,11 @@ export default function EllendorfWallpaperApp() {
       setIsGeneratingPDF(false);
       return;
     }
-
+  
     setIsGeneratingPDF(true);
     
     console.log(`Starting PDF generation for ${likedWallpapers.length} wallpapers...`);
-
+  
     try {
       const { default: jsPDF } = await import('jspdf');
       
@@ -1672,7 +1672,17 @@ export default function EllendorfWallpaperApp() {
         second: '2-digit'
       });
       const formattedDate = currentDate.toISOString().split('T')[0];
-
+  
+      // Luxury color palette
+      const COLORS = {
+        gold: [184, 134, 11],
+        darkGray: [40, 40, 40],
+        lightGray: [245, 245, 245],
+        white: [255, 255, 255],
+        black: [0, 0, 0],
+        cream: [250, 248, 240]
+      };
+  
       // Load brand image once for reuse
       console.log('Loading brand image...');
       const brandImg = await loadBrandImage();
@@ -1694,108 +1704,102 @@ export default function EllendorfWallpaperApp() {
       // ========== LUXURY COVER PAGE ==========
       console.log('Creating luxury cover page...');
       
-      // White background
-      doc.setFillColor(255, 255, 255);
+      // Cream background for luxury feel
+      doc.setFillColor(...COLORS.cream);
       doc.rect(0, 0, pageWidth, pageHeight, "F");
-
-      // Decorative corner elements
-      doc.setDrawColor(200, 180, 150);
-      doc.setLineWidth(0.5);
-      doc.line(15, 15, 35, 15);
-      doc.line(15, 15, 15, 35);
-      doc.line(pageWidth - 15, 15, pageWidth - 35, 15);
-      doc.line(pageWidth - 15, 15, pageWidth - 15, 35);
-      doc.line(15, pageHeight - 15, 35, pageHeight - 15);
-      doc.line(15, pageHeight - 15, 15, pageHeight - 35);
-      doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 35, pageHeight - 15);
-      doc.line(pageWidth - 15, pageHeight - 15, pageWidth - 15, pageHeight - 35);
-      
-      // Brand logo - ONLY LOGO, NO TEXT
+  
+      // Decorative gold border
+      doc.setDrawColor(...COLORS.gold);
+      doc.setLineWidth(0.8);
+      doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
+  
+      // Brand logo - LARGE AND CENTERED
       if (brandImageData) {
         try {
-          const logoWidth = 80; // mm - larger since it's the only branding
+          const logoWidth = 90; // mm - very large for luxury feel
           const logoHeight = (logoWidth * brandImg.height) / brandImg.width;
           const logoX = (pageWidth - logoWidth) / 2; // Centered
-          const logoY = 40; // Top position
+          const logoY = 60; // Top position with space
+          
+          // Add subtle shadow behind logo
+          doc.setFillColor(240, 240, 240);
+          doc.circle(logoX + logoWidth/2, logoY + logoHeight/2, logoWidth/2 + 5, 'F');
+          
+          // Add the logo
           doc.addImage(brandImageData, 'PNG', logoX, logoY, logoWidth, logoHeight);
-          console.log(`Brand logo added: ${logoWidth}mm x ${logoHeight}mm at (${logoX}, ${logoY})`);
+          console.log(`Brand logo added: ${logoWidth}mm x ${logoHeight}mm`);
         } catch (err) {
           console.warn('Failed to add brand logo to cover:', err);
         }
       }
-      
-      // Calculate logo bottom position
-      const logoBottomY = brandImageData ? (40 + (80 * brandImg.height / brandImg.width) + 20) : 40;
-      
-      // Customer information box - ENSURE ALL INFO IS VISIBLE
-      const boxY = logoBottomY + 20; // Position below logo with spacing
-      const boxHeight = 50; // Increased height
+  
+      // Customer information box - BELOW LOGO
+      const boxY = 160; // Fixed position below logo
+      const boxHeight = 45;
       const boxWidth = pageWidth - 60;
       const boxX = (pageWidth - boxWidth) / 2;
       
-      doc.setFillColor(248, 248, 248);
-      doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 3, 3, 'F');
+      // White box with shadow effect
+      doc.setFillColor(...COLORS.white);
       doc.setDrawColor(220, 220, 220);
       doc.setLineWidth(0.5);
-      doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 3, 3);
+      doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 5, 5, 'FD');
+      
+      // Add subtle shadow
+      doc.setFillColor(248, 248, 248);
+      doc.roundedRect(boxX + 1, boxY + 1, boxWidth - 2, boxHeight - 2, 5, 5, 'F');
       
       // Customer name - BOLD AND PROMINENT
-      doc.setFontSize(18);
+      doc.setTextColor(...COLORS.black);
+      doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(30, 30, 30);
-      doc.text(`Client: ${customerName}`, pageWidth / 2, boxY + 14, { align: "center" });
-
-      // Timestamp - CLEARLY VISIBLE
+      doc.text(`Client: ${customerName}`, pageWidth / 2, boxY + 18, { align: "center" });
+  
+      // Generated date
       doc.setFontSize(12);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(80, 80, 80);
-      doc.text(`Generated: ${timestamp}`, pageWidth / 2, boxY + 26, { align: "center" });
+      doc.text(`Generated: ${timestamp}`, pageWidth / 2, boxY + 30, { align: "center" });
       
       // Total selections
-      doc.setFontSize(12);
       doc.setTextColor(80, 80, 80);
-      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, boxY + 38, { align: "center" });
+      doc.text(`Total Selections: ${likedWallpapers.length}`, pageWidth / 2, boxY + 40, { align: "center" });
       
-      // Decorative dashed line
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.3);
-      doc.setLineDashPattern([2, 2], 0);
-      doc.line(30, boxY + boxHeight + 20, pageWidth - 30, boxY + boxHeight + 20);
-      doc.setLineDashPattern([], 0);
+      // Luxury tagline
+      const taglineY = boxY + boxHeight + 30;
+      doc.setFontSize(14);
+      doc.setFont("times", "bold");
+      doc.setTextColor(...COLORS.darkGray);
+      doc.text("Premium Wall Coverings Collection", pageWidth / 2, taglineY, { align: "center" });
       
-      // Tagline - BIGGER FONT, ABOVE THANKING MESSAGE
-      const taglineY = boxY + boxHeight + 35;
-      doc.setFontSize(16); // Increased from 10 to 16 for bigger font
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(50, 50, 50);
-      doc.text("Premium Quality | Timeless Elegance | Exceptional Craftsmanship", pageWidth / 2, taglineY, { align: "center" });
+      // Final footer
+      const footerY = pageHeight - 25;
       
-      // Thank you message - BELOW TAGLINE
-      doc.setFontSize(12);
-      doc.setFont("times", "italic");
-      doc.setTextColor(120, 120, 120);
-      doc.text("Thank you for choosing Ellendorf - Textile wall covering", pageWidth / 2, taglineY + 18, { align: "center" });
-      
-      // Brand image at bottom left of cover page (small)
+      // Brand logo in footer (small)
       if (brandImageData) {
         try {
-          const smallBrandWidth = 25; // mm - small size
+          const smallBrandWidth = 20;
           const smallBrandHeight = (smallBrandWidth * brandImg.height) / brandImg.width;
-          doc.addImage(brandImageData, 'PNG', 10, pageHeight - smallBrandHeight - 10, smallBrandWidth, smallBrandHeight);
+          doc.addImage(brandImageData, 'PNG', 15, footerY - smallBrandHeight/2, 
+                       smallBrandWidth, smallBrandHeight);
         } catch (err) {
           console.warn('Failed to add brand image to cover footer:', err);
         }
       }
       
-      // Footer on first page
+      // Page number
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(150, 150, 150);
-      doc.text(`Page 1 of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 12, { align: "center" });
-      doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 6, { align: "center" });
+      doc.text(`Page 1 of ${likedWallpapers.length + 1}`, pageWidth / 2, footerY, { align: "center" });
       
-      // ========== PROCESS EACH WALLPAPER ==========
-      console.log(`Processing ${likedWallpapers.length} wallpapers with images...`);
+      // Footer text
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, footerY + 8, { align: "center" });
+  
+      // ========== PROCESS EACH WALLPAPER WITH HIGH QUALITY ==========
+      console.log(`Processing ${likedWallpapers.length} wallpapers with HIGH QUALITY images...`);
       
       for (let i = 0; i < likedWallpapers.length; i++) {
         const wp = likedWallpapers[i];
@@ -1804,424 +1808,309 @@ export default function EllendorfWallpaperApp() {
         doc.addPage();
         
         try {
-          // White background
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
-
-          // Decorative top border - LUXURY STYLE
-          doc.setDrawColor(200, 180, 150); // Gold accent
+          // Cream background
+          doc.setFillColor(...COLORS.cream);
+          doc.rect(0, 0, pageWidth, pageHeight, "F");
+  
+          // Gold border
+          doc.setDrawColor(...COLORS.gold);
           doc.setLineWidth(0.5);
-          doc.line(20, 12, pageWidth - 20, 12);
-          
-          // ========== LOAD AND ADD WALLPAPER IMAGE FIRST ==========
-          // CRITICAL: Abort PDF if image fails to load
+          doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
+  
+          // ========== LOAD AND ADD HIGH QUALITY WALLPAPER IMAGE ==========
           let imageY = 0;
           let imageHeight = 0;
           
           if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
             try {
-              console.log(`Loading image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
-              console.log(`Image URL: ${wp.imageUrl}`);
+              console.log(`Loading HIGH QUALITY image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
               
-              // Load image with retry logic - CRITICAL
+              // Load image using robust loading function with retry logic
               const img = await loadImageForPDF(wp.imageUrl);
               
-              // ========== 300 DPI PRINT QUALITY - NO OVER-SCALING ==========
-              const DPI = 300; // Standard print quality (vs ~96 DPI for screens)
-              const mmToPixels = DPI / 25.4; // Convert mm to pixels at 300 DPI (11.811 pixels/mm)
+              // Calculate available space (more space for image)
+              const maxWidthMM = pageWidth - 40;
+              const maxHeightMM = pageHeight - 120; // More space for image
               
-              // Calculate available space in mm (physical size)
-              const maxWidthMM = pageWidth - 40; // Margins
-              const maxHeightMM = pageHeight - 140; // Space for text below
-              
-              // Get original image dimensions (native resolution)
+              // Get original dimensions
               const originalWidthPx = img.naturalWidth || img.width || 1200;
               const originalHeightPx = img.naturalHeight || img.height || 900;
               
-              // Calculate original image size in mm at 300 DPI
-              const originalWidthMM = originalWidthPx / mmToPixels;
-              const originalHeightMM = originalHeightPx / mmToPixels;
+              // Calculate size to fit while maintaining aspect ratio
+              let widthMM = maxWidthMM;
+              let heightMM = (widthMM * originalHeightPx) / originalWidthPx;
               
-              // Calculate scale to fit available space (maintain aspect ratio)
-              const widthScale = maxWidthMM / originalWidthMM;
-              const heightScale = maxHeightMM / originalHeightMM;
-              const scale = Math.min(widthScale, heightScale, 1.0); // Never upscale (max 1.0)
-              
-              // Target dimensions in mm (physical size for PDF)
-              let targetWidthMM = originalWidthMM * scale;
-              let targetHeightMM = originalHeightMM * scale;
-              
-              // Ensure minimum size (100mm minimum)
-              if (targetWidthMM < 100) {
-                const adjustScale = 100 / targetWidthMM;
-                targetWidthMM = 100;
-                targetHeightMM = targetHeightMM * adjustScale;
-              }
-              if (targetHeightMM < 100) {
-                const adjustScale = 100 / targetHeightMM;
-                targetHeightMM = 100;
-                targetWidthMM = targetWidthMM * adjustScale;
+              if (heightMM > maxHeightMM) {
+                heightMM = maxHeightMM;
+                widthMM = (heightMM * originalWidthPx) / originalHeightPx;
               }
               
-              // Convert target mm to pixels at 300 DPI for canvas
-              let targetWidthPx = targetWidthMM * mmToPixels;
-              let targetHeightPx = targetHeightMM * mmToPixels;
-              
-              // NO OVER-SCALING: Use original image dimensions when possible
-              // If target is larger than original, use original (no upscaling)
-              if (targetWidthPx > originalWidthPx) {
-                targetWidthPx = originalWidthPx;
-                targetWidthMM = originalWidthMM;
-              }
-              if (targetHeightPx > originalHeightPx) {
-                targetHeightPx = originalHeightPx;
-                targetHeightMM = originalHeightMM;
+              // Ensure minimum size
+              if (widthMM < 100) {
+                widthMM = 100;
+                heightMM = (widthMM * originalHeightPx) / originalWidthPx;
               }
               
-              // Canvas size: Use target dimensions at 300 DPI (no arbitrary scaling)
-              let canvasWidth = Math.round(targetWidthPx);
-              let canvasHeight = Math.round(targetHeightPx);
+              // Create canvas at HIGH QUALITY (300 DPI)
+              const DPI = 300;
+              const MM_TO_INCH = 25.4;
+              const pixelsPerMM = DPI / MM_TO_INCH;
               
-              // Ensure reasonable minimum for quality (but don't force if original is smaller)
-              const minCanvasSize = 100 * mmToPixels; // 100mm at 300 DPI
-              if (canvasWidth < minCanvasSize && originalWidthPx >= minCanvasSize) {
-                canvasWidth = Math.min(minCanvasSize, originalWidthPx);
+              const canvasWidth = Math.round(widthMM * pixelsPerMM);
+              const canvasHeight = Math.round(heightMM * pixelsPerMM);
+              
+              // Cap canvas size to avoid memory issues
+              const MAX_CANVAS_SIZE = 2000;
+              let finalCanvasWidth = canvasWidth;
+              let finalCanvasHeight = canvasHeight;
+              
+              if (finalCanvasWidth > MAX_CANVAS_SIZE || finalCanvasHeight > MAX_CANVAS_SIZE) {
+                const scale = MAX_CANVAS_SIZE / Math.max(finalCanvasWidth, finalCanvasHeight);
+                finalCanvasWidth = Math.round(finalCanvasWidth * scale);
+                finalCanvasHeight = Math.round(finalCanvasHeight * scale);
               }
-              if (canvasHeight < minCanvasSize && originalHeightPx >= minCanvasSize) {
-                canvasHeight = Math.min(minCanvasSize, originalHeightPx);
-              }
               
-              // Log quality settings
-              console.log(`Image quality settings (300 DPI print quality):`);
-              console.log(`  Original: ${originalWidthPx}x${originalHeightPx}px (${originalWidthMM.toFixed(1)}mm x ${originalHeightMM.toFixed(1)}mm)`);
-              console.log(`  Target: ${targetWidthMM.toFixed(1)}mm x ${targetHeightMM.toFixed(1)}mm (${targetWidthPx.toFixed(0)}px x ${targetHeightPx.toFixed(0)}px at 300 DPI)`);
-              console.log(`  Canvas: ${canvasWidth}x${canvasHeight}px (no over-scaling, maintains original quality)`);
-              console.log(`  Scale factor: ${scale.toFixed(3)} (${scale < 1 ? 'downscaled' : 'original size'})`);
-              
-              // Convert to canvas
+              // Create canvas
               const canvas = document.createElement('canvas');
-              canvas.width = canvasWidth;
-              canvas.height = canvasHeight;
-              const ctx = canvas.getContext('2d');
+              canvas.width = finalCanvasWidth;
+              canvas.height = finalCanvasHeight;
+              const ctx = canvas.getContext('2d', { alpha: false });
               
-              // ========== SMART RENDERING - HIGH-QUALITY ALGORITHMS ==========
-              // Enable high-quality image smoothing for best results
+              // HIGH QUALITY rendering
               ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = 'high'; // Best quality algorithm
+              ctx.imageSmoothingQuality = 'high';
               
-              // Draw original image - NO OVER-SCALING
-              // If canvas is same size as original, draw 1:1 (best quality)
-              // If canvas is smaller, draw scaled (downscaling is fine)
-              if (canvasWidth === originalWidthPx && canvasHeight === originalHeightPx) {
-                // Perfect 1:1 match - draw directly (no scaling, maximum quality)
-                ctx.drawImage(img, 0, 0);
-              } else {
-                // Scale to fit canvas (downscaling only, maintains quality)
-                ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
-              }
+              // Draw image at high quality
+              ctx.drawImage(img, 0, 0, finalCanvasWidth, finalCanvasHeight);
               
-              // ========== SMART WATERMARKING - ADJUST BASED ON IMAGE BRIGHTNESS ==========
-              // Sample image brightness from center area
-              const sampleSize = 100;
-              const sampleX = (canvasWidth - sampleSize) / 2;
-              const sampleY = (canvasHeight - sampleSize) / 2;
-              const brightnessSample = ctx.getImageData(sampleX, sampleY, sampleSize, sampleSize);
-              const pixels = brightnessSample.data;
-              
-              // Calculate average brightness
-              let totalBrightness = 0;
-              for (let i = 0; i < pixels.length; i += 4) {
-                const r = pixels[i];
-                const g = pixels[i + 1];
-                const b = pixels[i + 2];
-                totalBrightness += (r + g + b) / 3;
-              }
-              const avgBrightness = totalBrightness / (pixels.length / 4);
-              const isDarkImage = avgBrightness < 128; // Threshold for dark images
-              
-              console.log(`Image brightness: ${avgBrightness.toFixed(1)} (${isDarkImage ? 'Dark' : 'Light'})`);
-              
-              const productCodeText = wp.productCode || "ELL-001";
-              const collectionText = wp.subCategory?.name || wp.category?.name || "Premium Collection";
-              
-              // Calculate font sizes based on canvas size (300 DPI aware)
-              const stripFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.045, 28); // Larger for 300 DPI
-              const footerFontSize = Math.max(Math.min(canvasWidth, canvasHeight) * 0.014, 14); // Footer text
-              
-              // ========== HORIZONTAL SEMI-TRANSPARENT STRIP ACROSS CENTER ==========
+              // ========== WHITE BACKGROUND WATERMARK ==========
+              // Add elegant white semi-transparent overlay at bottom
               ctx.save();
               
-              // Soft dark overlay strip (not pure black) - luxury style
-              const stripHeight = Math.max(canvasHeight * 0.14, 80); // 14% of height, minimum 80px
-              const stripY = (canvasHeight - stripHeight) / 2; // Center vertically
+              // White overlay at bottom (30% of height)
+              const watermarkHeight = finalCanvasHeight * 0.15;
+              const watermarkY = finalCanvasHeight - watermarkHeight;
               
-              // WHITE WATERMARK BACKGROUND - luxury style
-              // Always use white background for watermark strip
-              const stripColor = 'rgba(255, 255, 255, 0.85)'; // White semi-transparent
-              const textColor = "rgba(0, 0, 0, 0.9)"; // Dark text on white background
+              // White gradient overlay
+              const gradient = ctx.createLinearGradient(0, watermarkY, 0, finalCanvasHeight);
+              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.7)');
+              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.9)');
               
-              // Draw white semi-transparent strip with gradient edges
-              const gradient = ctx.createLinearGradient(0, stripY, 0, stripY + stripHeight);
-              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.60)'); // Softer edges
-              gradient.addColorStop(0.3, stripColor); // Center - more opaque
-              gradient.addColorStop(0.7, stripColor);
-              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.60)'); // Softer edges
-              
-              ctx.globalAlpha = 1.0;
               ctx.fillStyle = gradient;
-              ctx.fillRect(0, stripY, canvasWidth, stripHeight);
+              ctx.fillRect(0, watermarkY, finalCanvasWidth, watermarkHeight);
               
-              // Centered text on strip: "ELLENDORF – Textile Wall Coverings"
-              ctx.globalAlpha = 1.0; // Full opacity for text
-              ctx.fillStyle = textColor; // Dark text on white background
-              ctx.font = `italic ${stripFontSize}px 'Times New Roman', serif`; // Elegant serif font
+              // Brand text on white background
+              const fontSize = Math.min(finalCanvasWidth, finalCanvasHeight) * 0.025;
+              ctx.fillStyle = "rgba(0, 0, 0, 0.8)"; // Black text on white
+              ctx.font = `italic ${fontSize}px 'Times New Roman', serif`;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               
-              // Subtle text shadow for depth (lighter since it's on white)
-              ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
-              ctx.shadowBlur = 4;
+              // Add subtle shadow for depth
+              ctx.shadowColor = "rgba(0, 0, 0, 0.1)";
+              ctx.shadowBlur = 3;
               ctx.shadowOffsetX = 1;
               ctx.shadowOffsetY = 1;
               
-              // Main text: "ELLENDORF – Textile Wall Coverings"
-              const centerY = canvasHeight / 2;
-              ctx.fillText("ELLENDORF – Textile Wall Coverings", canvasWidth / 2, centerY);
+              // Watermark text
+              const textY = watermarkY + watermarkHeight / 2;
+              ctx.fillText("ELLENDORF Textile Wall Coverings", finalCanvasWidth / 2, textY);
               
               ctx.restore();
               
-              // REMOVED: Footer watermark at bottom - title and product details will be below image as text only
+              // Convert to HIGH QUALITY JPEG (0.9 quality for minimal artifacts)
+              const imageData = canvas.toDataURL('image/jpeg', 0.9);
               
-              // ========== HIGH JPEG COMPRESSION - MINIMAL ARTIFACTS ==========
-              // Use very high quality (0.95) for minimal compression artifacts
-              // This ensures print-quality images with no visible artifacts
-              const jpegQuality = 0.95; // Very high quality, minimal compression
-              const finalImageData = canvas.toDataURL('image/jpeg', jpegQuality);
-              const imageSizeKB = (finalImageData.length / 1024).toFixed(2);
+              // Add image to PDF (centered)
+              const x = (pageWidth - widthMM) / 2;
+              imageY = 25; // Start from top
+              imageHeight = heightMM;
               
-              console.log(`✓ Image processed successfully:`);
-              console.log(`  Canvas: ${canvasWidth}x${canvasHeight}px`);
-              console.log(`  Physical size: ${targetWidthMM.toFixed(1)}mm x ${targetHeightMM.toFixed(1)}mm at 300 DPI`);
-              console.log(`  JPEG quality: ${jpegQuality} (minimal compression artifacts)`);
-              console.log(`  Data size: ${imageSizeKB} KB`);
+              // Add decorative border around image
+              doc.setDrawColor(...COLORS.gold);
+              doc.setLineWidth(0.3);
+              doc.rect(x - 2, imageY - 2, widthMM + 4, heightMM + 4);
               
-              // Add image to PDF - PROPERLY ALIGNED (using mm dimensions)
-              const x = (pageWidth - targetWidthMM) / 2; // Center horizontally
-              imageY = 20; // Start from top with margin
-              imageHeight = targetHeightMM; // Use mm dimension
-              doc.addImage(finalImageData, 'JPEG', x, imageY, targetWidthMM, targetHeightMM);
+              // Add the high-quality image
+              doc.addImage(imageData, 'JPEG', x, imageY, widthMM, heightMM);
               
-              console.log(`✓ Image ${i + 1} added successfully with luxury watermark`);
+              console.log(`✓ HIGH QUALITY Image ${i + 1} added: ${widthMM.toFixed(1)}mm x ${heightMM.toFixed(1)}mm`);
               
             } catch (imageError) {
-              console.error(`✗ CRITICAL ERROR: Failed to load image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
-              throw new Error(`Failed to load image for "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted.`);
+              console.error(`✗ Error loading image ${i + 1}:`, imageError);
+              throw new Error(`Failed to load image for "${wp.name}"`);
             }
-                } else {
-            throw new Error(`No image URL for wallpaper "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted.`);
           }
+  
+          // ========== LUXURY PRODUCT INFORMATION BELOW IMAGE ==========
+          const textStartY = imageY + imageHeight + 15;
           
-          // ========== TITLE AND PRODUCT CODE BELOW IMAGE - PREMIUM WHITE BOX ==========
-          // Position text below the image with proper spacing
-          const textStartY = imageY + imageHeight + 15; // 15mm gap after image
+          // Create luxury white box with shadow
+          const infoBoxWidth = pageWidth - 40;
+          const infoBoxHeight = 45;
+          const infoBoxX = (pageWidth - infoBoxWidth) / 2;
           
-          // Calculate text box dimensions
-          const textBoxPadding = 8; // mm padding
-          const textBoxWidth = pageWidth - 40; // Full width with margins
-          const textBoxX = (pageWidth - textBoxWidth) / 2;
-          
-          // Wallpaper name - TITLE (LARGER, MORE PROMINENT)
-          const displayName = wp.name && wp.name.length > 45 
-            ? wp.name.substring(0, 42) + "..." 
-            : wp.name || "Untitled";
-          
-          // Product code text
-          const productCodeText = `Product Code: ${wp.productCode || "N/A"}`;
-          
-          // Collection text
-          const collectionText = wp.subCategory?.name ? `Collection: ${wp.subCategory.name}` : null;
-          
-          // Calculate text box height based on content
-          let textBoxHeight = 20; // Base height
-          if (collectionText) textBoxHeight += 8;
-          
-          // Draw premium white box with shadow effect
-          doc.setFillColor(255, 255, 255); // White background
-          doc.setDrawColor(240, 240, 240); // Light border
+          // White box with shadow effect
+          doc.setFillColor(...COLORS.white);
+          doc.setDrawColor(230, 230, 230);
           doc.setLineWidth(0.5);
-          doc.roundedRect(textBoxX, textStartY - textBoxHeight + 5, textBoxWidth, textBoxHeight, 2, 2, 'FD'); // Fill and draw
+          doc.roundedRect(infoBoxX, textStartY, infoBoxWidth, infoBoxHeight, 5, 5, 'FD');
           
-          // Add subtle shadow effect (multiple layers for depth)
-          doc.setFillColor(245, 245, 245);
-          doc.roundedRect(textBoxX + 0.5, textStartY - textBoxHeight + 5.5, textBoxWidth - 1, textBoxHeight - 1, 2, 2, 'F');
+          // Add inner white for shadow effect
           doc.setFillColor(255, 255, 255);
-          doc.roundedRect(textBoxX, textStartY - textBoxHeight + 5, textBoxWidth, textBoxHeight, 2, 2, 'F');
+          doc.roundedRect(infoBoxX, textStartY, infoBoxWidth, infoBoxHeight, 5, 5, 'F');
           
-          // Wallpaper name - TITLE (LARGER, MORE PROMINENT)
-          doc.setTextColor(25, 25, 25);
-          doc.setFontSize(28); // Increased from 24 to 28 for luxury feel
+          // Product name - LUXURY STYLING
+          const displayName = wp.name && wp.name.length > 50 
+            ? wp.name.substring(0, 47) + "..." 
+            : wp.name || "Exclusive Design";
+          
+          doc.setTextColor(...COLORS.black);
+          doc.setFontSize(20);
           doc.setFont("times", "bold");
-          doc.text(displayName, pageWidth / 2, textStartY - 8, { align: "center" });
+          doc.text(displayName, pageWidth / 2, textStartY + 12, { align: "center" });
           
-          // Product code - LARGER AND BOLD
-          doc.setFontSize(16); // Increased from 14 to 16
-                doc.setFont("helvetica", "bold");
-          doc.setTextColor(50, 50, 50); // Darker for visibility
-          doc.text(productCodeText, pageWidth / 2, textStartY + 2, { align: "center" });
+          // Product code - ELEGANT
+          doc.setFontSize(14);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(60, 60, 60);
+          doc.text(`Code: ${wp.productCode || "N/A"}`, pageWidth / 2, textStartY + 22, { align: "center" });
           
-          // Collection - VISIBLE AND ELEGANT
-          if (collectionText) {
-            doc.setFontSize(13); // Increased from 12 to 13
+          // Collection - ITALIC AND ELEGANT
+          if (wp.subCategory?.name) {
+            doc.setFontSize(12);
             doc.setFont("helvetica", "italic");
-            doc.setTextColor(90, 90, 90);
-            doc.text(collectionText, pageWidth / 2, textStartY + 10, { align: "center" });
+            doc.setTextColor(100, 100, 100);
+            doc.text(`Collection: ${wp.subCategory.name}`, pageWidth / 2, textStartY + 32, { align: "center" });
           }
           
-          // Brand image at bottom left of every page (small) - PROPERLY POSITIONED
+          // Category - IF AVAILABLE
+          if (wp.category?.name) {
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(120, 120, 120);
+            doc.text(`Category: ${wp.category.name}`, pageWidth / 2, textStartY + 39, { align: "center" });
+          }
+  
+          // ========== FOOTER ==========
+          // Decorative line above footer
+          doc.setDrawColor(...COLORS.gold);
+          doc.setLineWidth(0.3);
+          doc.line(20, pageHeight - 35, pageWidth - 20, pageHeight - 35);
+  
+          // Brand logo in footer (small)
           if (brandImageData) {
             try {
-              const smallBrandWidth = 22; // mm - slightly larger for visibility
+              const smallBrandWidth = 18;
               const smallBrandHeight = (smallBrandWidth * brandImg.height) / brandImg.width;
-              const brandX = 12; // Left margin
-              const brandY = pageHeight - smallBrandHeight - 35; // Above footer
-              doc.addImage(brandImageData, 'PNG', brandX, brandY, smallBrandWidth, smallBrandHeight);
+              doc.addImage(brandImageData, 'PNG', 15, pageHeight - smallBrandHeight - 20, 
+                           smallBrandWidth, smallBrandHeight);
             } catch (err) {
-              console.warn('Failed to add brand image to page:', err);
+              console.warn('Failed to add brand image to footer:', err);
             }
           }
-          
-          // Decorative bottom border - LUXURY STYLE (above footer)
-          doc.setDrawColor(200, 180, 150); // Gold accent
-          doc.setLineWidth(0.5);
-          const borderY = pageHeight - 32;
-          doc.line(20, borderY, pageWidth - 20, borderY);
-          
-          // Footer - PROPERLY ALIGNED
-          doc.setFontSize(10); // Slightly larger
-                doc.setFont("helvetica", "normal");
-          doc.setTextColor(140, 140, 140);
-          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 18, { align: "center" });
-          
-          doc.setFontSize(9); // Slightly larger
+  
+          // Client name (left)
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(120, 120, 120);
+          doc.text(`Client: ${customerName}`, 40, pageHeight - 20);
+  
+          // Page number (center)
           doc.setFont("helvetica", "italic");
-          doc.setTextColor(160, 160, 160);
-          doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 10, { align: "center" });
+          doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 20, { align: "center" });
+  
+          // Timestamp (right)
+          doc.text(timestamp, pageWidth - 40, pageHeight - 20, { align: "right" });
+  
+          // Final brand line
+          doc.setFontSize(7);
+          doc.text("ELLENDORF Textile Wall Coverings • Premium Collection", pageWidth / 2, pageHeight - 10, { align: "center" });
           
         } catch (pageError) {
           console.error(`Error on page ${i + 1}:`, pageError);
-          
-          doc.setFontSize(14);
-                doc.setFont("helvetica", "normal");
-          doc.setTextColor(200, 0, 0);
-          doc.text(`Error loading wallpaper: ${wp.name || wp.productCode}`, 10, 20);
-          doc.text("Continuing with remaining wallpapers...", 10, 30);
+          continue; // Continue with remaining wallpapers
         }
       }
       
-      // ========== SAVE PDF WITH 100% RELIABILITY ==========
-      console.log('Saving PDF...');
+      // ========== FINAL THANK YOU PAGE ==========
+      doc.addPage();
+      
+      // Cream background
+      doc.setFillColor(...COLORS.cream);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      
+      // Gold border
+      doc.setDrawColor(...COLORS.gold);
+      doc.setLineWidth(0.8);
+      doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
+      
+      // Brand logo at center
+      if (brandImageData) {
+        try {
+          const finalLogoWidth = 70;
+          const finalLogoHeight = (finalLogoWidth * brandImg.height) / brandImg.width;
+          doc.addImage(brandImageData, 'PNG', pageWidth / 2 - finalLogoWidth / 2, 
+                       pageHeight / 2 - finalLogoHeight - 20, finalLogoWidth, finalLogoHeight);
+        } catch (err) {
+          console.warn('Failed to add final brand logo:', err);
+        }
+      }
+      
+      // Thank you message
+      doc.setTextColor(...COLORS.darkGray);
+      doc.setFontSize(28);
+      doc.setFont("times", "bold");
+      doc.text("Thank You", pageWidth / 2, pageHeight / 2 + 10, { align: "center" });
+      
+      // Customer appreciation
+      doc.setFontSize(16);
+      doc.setFont("times", "italic");
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Dear ${customerName},`, pageWidth / 2, pageHeight / 2 + 30, { align: "center" });
+      
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "normal");
+      doc.text("Thank you for choosing our Luxury Collection.", pageWidth / 2, pageHeight / 2 + 45, { align: "center" });
+      doc.text("We appreciate your interest in our premium wall coverings.", pageWidth / 2, pageHeight / 2 + 55, { align: "center" });
+      
+      // Contact information
+      doc.setFontSize(12);
+      doc.text("For inquiries or to place an order:", pageWidth / 2, pageHeight / 2 + 75, { align: "center" });
+      doc.setFont("helvetica", "bold");
+      doc.text("Reimagine Walls", pageWidth / 2, pageHeight / 2 + 85, { align: "center" });
+      
+      // Final page number
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${likedWallpapers.length + 2} of ${likedWallpapers.length + 2}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+  
+      // ========== SAVE PDF ==========
+      console.log('Saving HIGH QUALITY PDF...');
       const fileName = `Ellendorf_Luxury_Collection_${customerName.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
       
-      let pdfSaved = false;
-      const pdfBlob = doc.output('blob');
-      const pdfSizeKB = (pdfBlob.size / 1024).toFixed(2);
+      doc.save(fileName);
       
-      console.log(`PDF generated: ${fileName}, Size: ${pdfSizeKB} KB`);
+      console.log('HIGH QUALITY PDF generation complete!');
       
-      // Method 1: Standard save
-      try {
-        doc.save(fileName);
-        pdfSaved = true;
-        console.log("PDF downloaded successfully (method 1)");
-      } catch (saveError) {
-        console.warn("PDF save method 1 failed:", saveError);
-      }
-      
-      // Method 2: Blob download
-      if (!pdfSaved) {
-        try {
-          const url = URL.createObjectURL(pdfBlob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = fileName;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          
-          setTimeout(() => {
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-          }, 100);
-          
-          pdfSaved = true;
-          console.log("PDF downloaded successfully (method 2)");
-        } catch (blobError) {
-          console.error("PDF blob download failed:", blobError);
-        }
-      }
-      
-      // Method 3: Data URL fallback
-      if (!pdfSaved) {
-        try {
-          const pdfDataUrl = doc.output('dataurlstring');
-          const link = document.createElement('a');
-          link.href = pdfDataUrl;
-          link.download = fileName;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          
-          setTimeout(() => {
-            document.body.removeChild(link);
-          }, 100);
-          
-          console.log("PDF downloaded successfully (method 3)");
-        } catch (dataUrlError) {
-          console.error("All PDF download methods failed:", dataUrlError);
-          throw new Error("Failed to download PDF. Please try again.");
-        }
-      }
-      
-      console.log(`PDF generation complete! File size: ${pdfSizeKB} KB`);
-      
-      // Show success toast notification - matching browser notification format
-      toast.success(`PDF '${fileName}' downloaded successfully! (${pdfSizeKB} KB)`, {
-        duration: 5000,
+      // Show success toast
+      toast.success(`Luxury brochure downloaded successfully!`, {
+        duration: 4000,
         position: "top-right",
         style: {
-          background: '#1f2937',
+          background: '#10b981',
           color: '#fff',
           padding: '16px 20px',
           borderRadius: '8px',
           fontSize: '14px',
-          fontWeight: '400',
-          border: '1px solid #374151',
-          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-          maxWidth: '400px',
-        },
-        iconTheme: {
-          primary: '#10b981',
-          secondary: '#fff',
         },
       });
       
     } catch (error) {
-      console.error("PDF generation FAILED and ABORTED:", error);
-      
-      // Clear any partial PDF data
-      try {
-        // Force cleanup
-        if (typeof doc !== 'undefined') {
-          // PDF was partially created, but we abort it
-        }
-      } catch (cleanupError) {
-        console.warn('Cleanup error:', cleanupError);
-      }
-      
-      // Show detailed error message with toast
-      const errorMessage = error.message || "PDF generation failed";
-      toast.error(`PDF Generation Failed: ${errorMessage}`, {
-        duration: 6000,
+      console.error("PDF generation error:", error);
+      toast.error(`Failed to generate luxury brochure: ${error.message || "Please try again."}`, {
+        duration: 5000,
         position: "top-right",
         style: {
           background: '#dc2626',
@@ -2229,16 +2118,13 @@ export default function EllendorfWallpaperApp() {
           padding: '16px 20px',
           borderRadius: '8px',
           fontSize: '14px',
-          maxWidth: '400px',
         },
       });
-      
-      // Don't download partial PDF - abort completely
-      throw error; // Re-throw to prevent any download
     } finally {
       setIsGeneratingPDF(false);
     }
   };
+  
 
   const handleDownloadPDF = () => {
     setShowCustomerDialog(true);
