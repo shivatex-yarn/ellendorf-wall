@@ -221,10 +221,10 @@ export default function Sidebar() {
             </button>
             
             {/* Copyright Text */}
-            <div className="mt-4 pt-3 border-t border-gray-700 px-2">
-              <div className="text-xs text-gray-500 text-center leading-relaxed">
-                <p className="mb-1">© {new Date().getFullYear()} Ellendorf. All rights reserved.</p>
-                <p className="mb-1 text-gray-400">Developed by internal team of Ellendorf</p>
+            <div className="mt-4 pt-3 pb-20 border-t border-gray-700">
+              <div className="text-[10px] text-gray-500 text-center leading-tight">
+                <p className="mb-0.5">© {new Date().getFullYear()} Ellendorf. All rights reserved.</p>
+                <p className="mb-0.5 text-gray-400">Developed by internal team of Ellendorf</p>
                 <p className="text-gray-400">Version 1.1</p>
               </div>
             </div>
