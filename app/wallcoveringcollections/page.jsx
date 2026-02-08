@@ -1891,10 +1891,10 @@ export default function EllendorfWallpaperApp() {
               const watermarkHeight = finalCanvasHeight * 0.15;
               const watermarkY = finalCanvasHeight - watermarkHeight;
               
-              // White gradient overlay
+              // White gradient overlay - LOW TRANSPARENCY (HIGH OPACITY)
               const gradient = ctx.createLinearGradient(0, watermarkY, 0, finalCanvasHeight);
-              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.7)');
-              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.9)');
+              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.92)'); // Increased from 0.7 to 0.92
+              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.98)'); // Increased from 0.9 to 0.98
               
               ctx.fillStyle = gradient;
               ctx.fillRect(0, watermarkY, finalCanvasWidth, watermarkHeight);
