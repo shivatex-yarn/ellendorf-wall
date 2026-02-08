@@ -25,6 +25,7 @@ import toast from "react-hot-toast";
 // Import shared image loading utilities with retry logic
 import { imageCache, preloadImage, preloadImagesBatch } from '../../lib/imageLoader.js';
 import Image from "next/image";
+import { useAuth } from '../../layout/authcontent.jsx';
 
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
@@ -1238,6 +1239,7 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
 
 export default function EllendorfWallpaperApp() {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [wallpapers, setWallpapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
@@ -1273,6 +1275,30 @@ export default function EllendorfWallpaperApp() {
       console.error("Failed to save liked wallpapers:", err);
     }
   }, [likedWallpapers]);
+
+  // Clear liked wallpapers when user logs out
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLikedWallpapers([]);
+      try {
+        sessionStorage.removeItem("likedWallpapers");
+      } catch (err) {
+        console.error("Failed to clear liked wallpapers on logout:", err);
+      }
+    }
+  }, [isAuthenticated]);
+
+  // Clear liked wallpapers when user logs out
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLikedWallpapers([]);
+      try {
+        sessionStorage.removeItem("likedWallpapers");
+      } catch (err) {
+        console.error("Failed to clear liked wallpapers on logout:", err);
+      }
+    }
+  }, [isAuthenticated]);
 
   // Handle escape key and body overflow
   useEffect(() => {
