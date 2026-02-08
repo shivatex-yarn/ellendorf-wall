@@ -1891,12 +1891,12 @@ export default function EllendorfWallpaperApp() {
               const watermarkHeight = Math.max(finalCanvasHeight * 0.14, 80); // 14% of height, minimum 80px
               const watermarkY = (finalCanvasHeight - watermarkHeight) / 2; // Center vertically
               
-              // White gradient overlay - LOW TRANSPARENCY (HIGH OPACITY)
+              // White gradient overlay - GLASS EFFECT (TRANSPARENT LIKE GLASS)
               const gradient = ctx.createLinearGradient(0, watermarkY, 0, watermarkY + watermarkHeight);
-              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)'); // Softer edges
-              gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.92)'); // Center - more opaque
-              gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.92)');
-              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.85)'); // Softer edges
+              gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)'); // Very transparent edges
+              gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.35)'); // Center - glass-like transparency
+              gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.35)');
+              gradient.addColorStop(1, 'rgba(255, 255, 255, 0.25)'); // Very transparent edges
               
               ctx.fillStyle = gradient;
               ctx.fillRect(0, watermarkY, finalCanvasWidth, watermarkHeight);
