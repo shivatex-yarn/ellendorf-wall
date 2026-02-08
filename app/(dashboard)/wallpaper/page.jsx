@@ -628,10 +628,10 @@ export default function Wallpaper() {
                 <div style="font-size: 12px; opacity: 0.7;">${wallpaper.name}</div>
               </div>
               <div class="watermark-notice">
-                ✓ Bold Watermark: "ELLENDORF — Textile Wall Coverings" (centered, bold)
+                 "ELLENDORF — Textile Wall Coverings" (centered, bold)
               </div>
               <div class="download-info">
-                Right-click image → "Save image as" to download with watermark • Escape key to close
+         Ellendorf - Reimagine walls with our luxury textile wall coverings. Click image to zoom. Right-click to save (watermark is embedded).
               </div>
             </div>
             <script>
@@ -652,7 +652,7 @@ export default function Wallpaper() {
                 
                 // Show watermark is embedded
                 console.log('Permanently watermarked image loaded');
-                console.log('Bold watermark text: "ELLENDORF — Textile Wall Coverings"');
+                console.log( "ELLENDORF — Textile Wall Coverings"');
               };
               
               // Initialize

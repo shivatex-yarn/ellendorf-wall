@@ -1480,16 +1480,72 @@ export default function EllendorfWallpaperApp() {
     return [...new Set(wallpapers.map((w) => w.subCategory?.name).filter(Boolean))];
   }, [wallpapers]);
 
-  // Helper function to load image with retry logic - CRITICAL for reliability
-  const loadImageForPDF = async (imageUrl, retryCount = 0, maxRetries = 5) => {
-          return new Promise((resolve, reject) => {
-      const img = new window.Image();
-            img.crossOrigin = "anonymous";
+  // Helper function to convert WEBP to JPEG if needed
+  const convertWebPToJPEG = async (blob) => {
+    return new Promise((resolve, reject) => {
+      if (blob.type === 'image/webp') {
+        console.log('Converting WEBP to JPEG...');
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        
+        const objectUrl = URL.createObjectURL(blob);
+        
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
             
-            const timeout = setTimeout(() => {
-        if (retryCount < maxRetries) {
+            // Convert to JPEG
+            canvas.toBlob((jpegBlob) => {
+              URL.revokeObjectURL(objectUrl);
+              if (jpegBlob) {
+                console.log('WEBP converted to JPEG successfully');
+                resolve(jpegBlob);
+              } else {
+                reject(new Error('Failed to convert WEBP to JPEG'));
+              }
+            }, 'image/jpeg', 0.92);
+          } catch (err) {
+            URL.revokeObjectURL(objectUrl);
+            reject(err);
+          }
+        };
+        
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Failed to load WEBP image'));
+        };
+        
+        img.src = objectUrl;
+      } else {
+        // Not WEBP, return as-is
+        resolve(blob);
+      }
+    });
+  };
+
+  // Helper function to load image with retry logic - CRITICAL for reliability
+  // ABORTS PDF if image fails after all retries
+  const loadImageForPDF = async (imageUrl, retryCount = 0, maxRetries = 5) => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.crossOrigin = "anonymous"; // CRITICAL: Set crossOrigin for CORS
+      
+      let objectUrl = null;
+      let timeout = null;
+      
+      const cleanup = () => {
+        if (timeout) clearTimeout(timeout);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      };
+      
+      timeout = setTimeout(() => {
+        cleanup();
+          if (retryCount < maxRetries) {
           console.log(`Image load timeout, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
-          clearTimeout(timeout);
           loadImageForPDF(imageUrl, retryCount + 1, maxRetries)
             .then(resolve)
             .catch(reject);
@@ -1499,13 +1555,13 @@ export default function EllendorfWallpaperApp() {
       }, 30000); // 30 second timeout per attempt
             
             img.onload = () => {
-              clearTimeout(timeout);
+        cleanup();
         console.log(`Image loaded successfully:`, imageUrl, img.width, 'x', img.height);
         resolve(img);
-            };
-            
+      };
+      
       img.onerror = (error) => {
-              clearTimeout(timeout);
+        cleanup();
         if (retryCount < maxRetries) {
           console.log(`Image load error, retrying (${retryCount + 1}/${maxRetries}):`, imageUrl);
           setTimeout(() => {
@@ -1518,30 +1574,32 @@ export default function EllendorfWallpaperApp() {
         }
       };
       
-      // Try fetch first for better CORS handling
+      // Try fetch first for better CORS handling with AWS S3
       fetch(imageUrl, {
                 mode: 'cors',
-                credentials: 'omit',
-        cache: 'force-cache'
+        credentials: 'omit', // CRITICAL: No credentials for CORS
+        cache: 'force-cache',
+        headers: {
+          'Accept': 'image/*', // Accept any image format
+        }
       })
         .then(response => {
               if (response.ok) {
             return response.blob();
           }
-          throw new Error('Fetch failed');
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         })
         .then(blob => {
-          const objectUrl = URL.createObjectURL(blob);
-          img.src = objectUrl;
-          // Clean up after load
-            img.onload = () => {
-              clearTimeout(timeout);
-            URL.revokeObjectURL(objectUrl);
-            resolve(img);
-          };
+          // Convert WEBP to JPEG if needed
+          return convertWebPToJPEG(blob);
         })
-        .catch(() => {
-          // Fallback to direct URL
+        .then(blob => {
+                objectUrl = URL.createObjectURL(blob);
+                img.src = objectUrl;
+        })
+        .catch((fetchError) => {
+          console.warn('Fetch failed, trying direct URL:', fetchError);
+          // Fallback to direct URL with cache buster
           img.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
         });
     });
@@ -1777,11 +1835,14 @@ export default function EllendorfWallpaperApp() {
           }
           
           // ========== LOAD AND ADD WALLPAPER IMAGE ==========
+          // CRITICAL: Abort PDF if image fails to load
           if (wp.imageUrl && wp.imageUrl !== "/placeholder.jpg") {
             try {
-              console.log(`Loading image ${i + 1}: ${wp.imageUrl}`);
+              console.log(`Loading image ${i + 1}/${likedWallpapers.length}: ${wp.name}`);
+              console.log(`Image URL: ${wp.imageUrl}`);
               
               // Load image with retry logic - CRITICAL
+              // If this fails, we abort the entire PDF generation
               const img = await loadImageForPDF(wp.imageUrl);
               
               // Calculate dimensions
@@ -1819,7 +1880,7 @@ export default function EllendorfWallpaperApp() {
               ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
               
-              // Convert to data URL with good quality
+              // Convert to data URL with good quality (always JPEG, even if source was WEBP)
               const imageData = canvas.toDataURL('image/jpeg', 0.70);
               
               // Add image to PDF
@@ -1827,23 +1888,18 @@ export default function EllendorfWallpaperApp() {
               const y = 50;
               doc.addImage(imageData, 'JPEG', x, y, targetWidth, targetHeight);
               
-              console.log(`Image ${i + 1} added successfully`);
+              console.log(`✓ Image ${i + 1} added successfully`);
               
             } catch (imageError) {
-              console.error(`Error processing image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
+              console.error(`✗ CRITICAL ERROR: Failed to load image ${i + 1}/${likedWallpapers.length} (${wp.name}):`, imageError);
+              console.error(`Image URL: ${wp.imageUrl}`);
               
-              // Add placeholder text
-              doc.setFontSize(16);
-                doc.setFont("helvetica", "italic");
-                doc.setTextColor(150, 150, 150);
-              doc.text("Image Preview Not Available", pageWidth / 2, pageHeight / 2, { align: "center" });
-              doc.text("Please view online for full preview", pageWidth / 2, pageHeight / 2 + 10, { align: "center" });
+              // ABORT PDF GENERATION - Image failed to load
+              throw new Error(`Failed to load image for "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted. Please check image URL: ${wp.imageUrl}`);
             }
           } else {
-            doc.setFontSize(16);
-            doc.setFont("helvetica", "italic");
-            doc.setTextColor(150, 150, 150);
-            doc.text("No Image Available", pageWidth / 2, pageHeight / 2, { align: "center" });
+            // No image URL - ABORT PDF
+            throw new Error(`No image URL for wallpaper "${wp.name}" (${wp.productCode || 'N/A'}). PDF generation aborted.`);
           }
           
           // Brand image at bottom left of every page (small)
@@ -1864,12 +1920,12 @@ export default function EllendorfWallpaperApp() {
           
           // Footer
           doc.setFontSize(9);
-          doc.setFont("helvetica", "normal");
+                doc.setFont("helvetica", "normal");
           doc.setTextColor(150, 150, 150);
           doc.text(`Page ${i + 2} of ${likedWallpapers.length + 1}`, pageWidth / 2, pageHeight - 15, { align: "center" });
           
           doc.setFontSize(8);
-          doc.setFont("helvetica", "italic");
+                doc.setFont("helvetica", "italic");
           doc.setTextColor(180, 180, 180);
           doc.text("ELLENDORF Textile Wall Coverings - Premium Collection", pageWidth / 2, pageHeight - 8, { align: "center" });
           
@@ -1952,8 +2008,24 @@ export default function EllendorfWallpaperApp() {
       alert(`PDF "${fileName}" downloaded successfully! (${pdfSizeKB} KB)`);
       
     } catch (error) {
-      console.error("PDF generation failed:", error);
-      alert(`Failed to generate PDF: ${error.message || "Please try again."}`);
+      console.error("PDF generation FAILED and ABORTED:", error);
+      
+      // Clear any partial PDF data
+      try {
+        // Force cleanup
+        if (typeof doc !== 'undefined') {
+          // PDF was partially created, but we abort it
+        }
+      } catch (cleanupError) {
+        console.warn('Cleanup error:', cleanupError);
+      }
+      
+      // Show detailed error message
+      const errorMessage = error.message || "PDF generation failed";
+      alert(`PDF Generation ABORTED\n\n${errorMessage}\n\nPlease ensure:\n- All images are accessible\n- CORS is properly configured on your image server\n- Images are in supported formats (JPG, PNG, WEBP)\n\nPlease try again after fixing the issue.`);
+      
+      // Don't download partial PDF - abort completely
+      throw error; // Re-throw to prevent any download
     } finally {
       setIsGeneratingPDF(false);
     }
