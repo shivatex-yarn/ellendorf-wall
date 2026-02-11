@@ -417,7 +417,7 @@ export default function ServicesPage() {
                         { icon: Shield, text: '5-year warranty', color: 'text-rose-500' },
                         { icon: Medal, text: 'Master craftsmen', color: 'text-blue-500' },
                         { icon: Trophy, text: 'Premium service', color: 'text-amber-500' },
-                        { icon: Zap, text: '24/7 support', color: 'text-emerald-500' },
+                     
                       ].map((feature, idx) => (
                         <div
                           key={idx}
