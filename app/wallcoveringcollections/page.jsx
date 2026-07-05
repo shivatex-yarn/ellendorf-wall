@@ -32,6 +32,100 @@ const GRID_THUMB_WIDTH = 640;
 import Image from "next/image";
 import { useAuth } from '../layout/authcontent.jsx';
 
+// --- Image protection helpers ---------------------------------------------
+// We never hand the raw S3 original to the user. Instead we draw the Ellendorf
+// watermark onto a canvas and expose only a same-origin blob: URL, so:
+//   * the S3 bucket URL is not shown in the address bar, and
+//   * anything the user can view or save is already watermarked.
+// (S3 serves the originals with `Access-Control-Allow-Origin: *`, so the
+// crossOrigin load keeps the canvas untainted and toBlob() works.)
+const buildWatermarkedBlobUrl = (imageUrl) =>
+  new Promise((resolve, reject) => {
+    if (!imageUrl) {
+      reject(new Error("No image URL"));
+      return;
+    }
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    const timeoutId = setTimeout(() => reject(new Error("Image load timeout")), 30000);
+
+    img.onload = () => {
+      clearTimeout(timeoutId);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas unsupported");
+
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Center glass-strip watermark (matches the PDF / wallpaper-page style)
+        const stripH = Math.max(canvas.height * 0.14, 80);
+        const stripY = (canvas.height - stripH) / 2;
+        const grad = ctx.createLinearGradient(0, stripY, 0, stripY + stripH);
+        grad.addColorStop(0, "rgba(255,255,255,0.25)");
+        grad.addColorStop(0.3, "rgba(255,255,255,0.35)");
+        grad.addColorStop(0.7, "rgba(255,255,255,0.35)");
+        grad.addColorStop(1, "rgba(255,255,255,0.25)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, stripY, canvas.width, stripH);
+
+        const fontSize = Math.max(Math.min(canvas.width, canvas.height) * 0.045, 28);
+        ctx.fillStyle = "rgba(0,0,0,0.9)";
+        ctx.font = `italic ${fontSize}px 'Times New Roman', serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0,0,0,0.2)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        ctx.fillText("ELLENDORF – Textile Wall Coverings", canvas.width / 2, canvas.height / 2);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(URL.createObjectURL(blob));
+            else reject(new Error("Failed to encode image"));
+          },
+          "image/jpeg",
+          0.92
+        );
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(new Error("Failed to load image"));
+    };
+
+    // Cache-bust so we always get a fresh CORS-enabled response (never a
+    // previously-cached non-CORS entry that would taint the canvas).
+    img.src = imageUrl + (imageUrl.includes("?") ? "&" : "?") + "wm=1";
+  });
+
+// Open the watermarked image in a new tab as a blob: URL (no S3 URL exposed,
+// right-click/drag disabled inside the tab). Opens the tab synchronously first
+// so it isn't caught by popup blockers, then fills it once the blob is ready.
+const openWatermarkedImage = async (wallpaper) => {
+  if (!wallpaper?.imageUrl) return;
+  const tab = window.open("", "_blank");
+  try {
+    const blobUrl = await buildWatermarkedBlobUrl(wallpaper.imageUrl);
+    if (!tab) return; // popup blocked — fail silently
+    tab.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<title>${(wallpaper.name || "Image")} — ELLENDORF</title>
+<style>html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}
+img{max-width:100%;max-height:100%;object-fit:contain;-webkit-user-drag:none;user-select:none}</style></head>
+<body oncontextmenu="return false"><img src="${blobUrl}" draggable="false" alt="${(wallpaper.name || "")}"/></body></html>`);
+    tab.document.close();
+  } catch {
+    if (tab) tab.close();
+    toast.error("Unable to open image. Please try again.");
+  }
+};
+
 // Customer Name Dialog Component
 const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   const [customerName, setCustomerName] = useState("");
@@ -107,195 +201,47 @@ const CustomerNameDialog = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// Helper: get initial image state from cache so pagination doesn't re-show loading
-const getInitialImageState = (imageUrl) => {
-  if (!imageUrl) return { src: "", isLoading: false, isError: true };
-  const cached = imageCache.get(imageUrl);
-  if (cached === null) {
-    // Image previously failed to load
-    return { src: "", isLoading: false, isError: true };
-  }
-  if (cached && cached !== null && !(cached instanceof Promise)) {
-    return { src: cached, isLoading: false, isError: false };
-  }
-  return { src: "", isLoading: true, isError: false };
-};
-
-// WallpaperCard Component - Optimized with Intersection Observer for lazy loading
-const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
+// WallpaperCard — bulletproof, scale-proof image tile.
+//
+// Design goals (works the same whether the catalog has 50 or 5,000 images):
+//  * The <img> uses the browser's NATIVE lazy loading, so only tiles near the
+//    viewport ever hit the network / Next.js image optimizer. Adding more
+//    images never increases the number of concurrent requests.
+//  * Loading + error state is driven purely by the <img>'s own onLoad/onError
+//    events — there are NO JS timeouts that could wrongly flip a slow-but-valid
+//    image into a permanent error (the old bug that made images "stick").
+//  * Graceful fallback chain so a tile can never end up broken:
+//      optimized thumbnail -> retry once (fresh origin fetch) ->
+//      full-res CDN original -> skeleton placeholder.
+const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false, priority = false }) => {
   const [isHovered, setIsHovered] = useState(false);
   // Grid tile shows a resized thumbnail via Next's optimizer, not the full-res original.
   const gridUrl = wp?.imageUrl ? optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH) : "";
-  const [imageState, setImageState] = useState(() => getInitialImageState(gridUrl));
-  const imgRef = useRef(null);
-  const observerRef = useRef(null);
-  const mountedRef = useRef(true);
-  const timeoutRef = useRef(null);
+  const [src, setSrc] = useState(gridUrl);
+  const [status, setStatus] = useState(gridUrl ? "loading" : "error"); // "loading" | "loaded" | "error"
+  const attemptRef = useRef(0);
 
-  // Optimized: Use Intersection Observer for lazy loading + cache check
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadImage = async (priority = false) => {
-      // Clear any existing timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
+  // No reset effect needed: cards are rendered with key={wp.id}, so React
+  // remounts this component (fresh state) whenever the tile shows a different
+  // wallpaper — e.g. on pagination or filtering.
 
-      if (!wp.imageUrl) {
-        if (isMounted) {
-          setImageState({
-            src: "",
-            isLoading: false,
-            isError: true
-          });
-        }
-        return;
-      }
-
-      // Check cache first
-      const cachedValue = imageCache.get(gridUrl);
-      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
-        if (isMounted) {
-          setImageState({
-            src: cachedValue,
-            isLoading: false,
-            isError: false
-          });
-        }
-        return;
-      }
-
-      // If there's a pending promise, wait for it with timeout
-      const loadingPromise = imageCache.getLoadingPromise(gridUrl);
-      if (loadingPromise) {
-        // Set loading state
-        if (isMounted) {
-          setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
-        }
-
-        // Set timeout for loading (10 seconds max)
-        timeoutRef.current = setTimeout(() => {
-          if (isMounted) {
-            setImageState({
-              src: "",
-              isLoading: false,
-              isError: true
-            });
-          }
-        }, 10000);
-
-        try {
-          const loadedUrl = await loadingPromise;
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          if (isMounted) {
-            setImageState({
-              src: loadedUrl,
-              isLoading: false,
-              isError: false
-            });
-          }
-        } catch (error) {
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          if (isMounted) {
-            setImageState({
-              src: "",
-              isLoading: false,
-              isError: true
-            });
-          }
-        }
-        return;
-      }
-
-      if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
-      }
-
-      // Set timeout for loading (10 seconds max)
-      timeoutRef.current = setTimeout(() => {
-        if (isMounted) {
-          setImageState({
-            src: "",
-            isLoading: false,
-            isError: true
-          });
-        }
-      }, 10000);
-
-      try {
-        const loadedUrl = await preloadImage(gridUrl, priority || index < 12);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-        if (isMounted) {
-          setImageState({
-            src: loadedUrl,
-            isLoading: false,
-            isError: false
-          });
-        }
-      } catch (error) {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-        if (isMounted) {
-          setImageState({
-            src: "",
-            isLoading: false,
-            isError: true
-          });
-        }
-      }
-    };
-
-    // Load immediately if it's in the first batch (above the fold)
-    if (index < 12) {
-      loadImage(true);
-    } else {
-      // Use Intersection Observer for lazy loading
-      if (typeof IntersectionObserver !== 'undefined' && imgRef.current) {
-        observerRef.current = new IntersectionObserver(
-          (entries) => {
-            entries.forEach((entry) => {
-              if (entry.isIntersecting && isMounted) {
-                loadImage(false);
-                if (observerRef.current && imgRef.current) {
-                  observerRef.current.unobserve(imgRef.current);
-                }
-              }
-            });
-          },
-          {
-            rootMargin: '50px', // Start loading 50px before entering viewport
-            threshold: 0.01
-          }
-        );
-        
-        observerRef.current.observe(imgRef.current);
-      } else {
-        // Fallback: load immediately if IntersectionObserver not available
-        loadImage(false);
-      }
+  const handleError = useCallback(() => {
+    attemptRef.current += 1;
+    if (attemptRef.current === 1 && wp.imageUrl) {
+      // 1st failure: re-request the thumbnail with a fresh origin fetch to
+      // shrug off a transient optimizer/CDN hiccup.
+      const busted = `${wp.imageUrl}${wp.imageUrl.includes("?") ? "&" : "?"}cb=1`;
+      setSrc(optimizedSrc(busted, GRID_THUMB_WIDTH));
+      return;
     }
-
-    return () => {
-      isMounted = false;
-      mountedRef.current = false;
-      if (observerRef.current && imgRef.current) {
-        observerRef.current.unobserve(imgRef.current);
-      }
-    };
-  }, [wp.imageUrl, index]);
+    if (attemptRef.current === 2 && wp.imageUrl && src !== wp.imageUrl) {
+      // 2nd failure: fall back to the reliable full-res CDN original.
+      setSrc(wp.imageUrl);
+      return;
+    }
+    // Give up gracefully — show the skeleton, never a broken image icon.
+    setStatus("error");
+  }, [wp.imageUrl, src]);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -303,11 +249,9 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
     onClick(wp);
   };
 
-  const handleLikeClick = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    onLike(wp);
-  };
+  // Only the first screenful (first section, first row-ish) loads eagerly with
+  // high priority; everything else defers to native lazy loading.
+  const isEager = priority && index < 6;
 
   return (
     <motion.div
@@ -315,7 +259,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ 
+      transition={{
         duration: 0.3,
         delay: index * 0.01,
         ease: "easeOut"
@@ -323,60 +267,46 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={`group relative bg-zinc-900/90 overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:scale-105 hover:shadow-2xl border-2 aspect-[16/9] w-full rounded-2xl shadow-xl ${
-        isHighlighted 
-          ? 'border-blue-500 ring-4 ring-blue-500/20 scale-105 z-10' 
+        isHighlighted
+          ? 'border-blue-500 ring-4 ring-blue-500/20 scale-105 z-10'
           : 'border-zinc-800'
       } ${compact ? 'rounded-lg' : 'rounded-2xl'}`}
       onClick={handleClick}
     >
-      {/* Loading/Error state - Using shadcn Skeleton */}
-      {imageState.isLoading && (
+      {/* Skeleton while loading (spinner) and on final error (plain skeleton) */}
+      {status !== "loaded" && (
         <div className={`absolute inset-0 flex items-center justify-center overflow-hidden ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
           <Skeleton className={`absolute inset-0 ${compact ? 'rounded-lg' : 'rounded-2xl'} bg-zinc-800`} />
-          <div className="relative z-10 flex flex-col items-center gap-2">
-            <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
-            <span className="text-zinc-400 text-xs">Loading...</span>
-          </div>
-        </div>
-      )}
-      
-      {imageState.isError && (
-        <div className={`absolute inset-0 flex items-center justify-center overflow-hidden ${compact ? 'rounded-lg' : 'rounded-2xl'}`}>
-          <Skeleton className={`absolute inset-0 ${compact ? 'rounded-lg' : 'rounded-2xl'} bg-zinc-800`} />
+          {status === "loading" && (
+            <div className="relative z-10 flex flex-col items-center gap-2">
+              <div className="w-6 h-6 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+              <span className="text-zinc-400 text-xs">Loading...</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Main image - native img so any size/domain loads (no Next Image limits) */}
-      <motion.div 
-        ref={imgRef}
-        layoutId={compact ? undefined : `image-${wp.id}-${id}`} 
+      {/* Main image - native <img> with browser lazy loading. crossOrigin
+          matches the pagination preloader so warmed cache entries are reused. */}
+      <motion.div
+        layoutId={compact ? undefined : `image-${wp.id}-${id}`}
         className="w-full h-full"
       >
-        {imageState.src && !imageState.isLoading && !imageState.isError && (
-          <motion.img
-            src={imageState.src}
+        {gridUrl && (
+          <img
+            src={src}
             alt={wp.name}
-            loading={index < 12 ? "eager" : "lazy"}
+            crossOrigin="anonymous"
+            loading={isEager ? "eager" : "lazy"}
+            fetchPriority={isEager ? "high" : "auto"}
             decoding="async"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+            onLoad={() => setStatus("loaded")}
+            onError={handleError}
+            className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-110 select-none ${
               compact ? 'rounded-lg' : 'rounded-2xl'
-            }`}
-            onError={() => {
-              if (!mountedRef.current) return;
-              // If the optimized thumbnail failed, fall back to the original full-res URL once.
-              if (wp.imageUrl && imageState.src !== wp.imageUrl) {
-                setImageState({ src: wp.imageUrl, isLoading: false, isError: false });
-                return;
-              }
-              setImageState({
-                src: "",
-                isLoading: false,
-                isError: true
-              });
-            }}
+            } ${status === "loaded" ? "opacity-100" : "opacity-0"}`}
           />
         )}
       </motion.div>
@@ -408,184 +338,32 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
 
 WallpaperCard.displayName = 'WallpaperCard';
 
-// Compact Wallpaper Card for Liked Modal - Optimized (init from cache to avoid re-loading)
+// Compact Wallpaper Card for Liked Modal — same bulletproof, native-lazy
+// strategy as WallpaperCard, at a smaller thumbnail width.
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
   // Compact tile shows a small resized thumbnail via Next's optimizer.
   const compactUrl = wp?.imageUrl ? optimizedSrc(wp.imageUrl, 384) : "";
-  const [imageState, setImageState] = useState(() => {
-    const s = getInitialImageState(compactUrl);
-    return { src: s.src, isLoading: s.isLoading, isError: s.isError || false };
-  });
-  const imgRef = useRef(null);
-  const observerRef = useRef(null);
-  const mountedRef = useRef(true);
-  const timeoutRef = useRef(null);
+  const [src, setSrc] = useState(compactUrl);
+  const [status, setStatus] = useState(compactUrl ? "loading" : "error"); // "loading" | "loaded" | "error"
+  const attemptRef = useRef(0);
 
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadImage = async (priority = false) => {
-      // Clear any existing timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
+  // No reset effect needed — keyed by wp.id so a different wallpaper remounts
+  // the component with fresh state.
 
-      if (!wp.imageUrl) {
-        if (isMounted) {
-          setImageState({ 
-            src: "", 
-            isLoading: false, 
-            isError: true 
-          });
-        }
-        return;
-      }
-      const cachedValue = imageCache.get(compactUrl);
-      if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
-        if (isMounted) {
-          setImageState({
-            src: cachedValue,
-            isLoading: false,
-            isError: false
-          });
-        }
-        return;
-      }
-
-      // If there's a pending promise, wait for it with timeout
-      const loadingPromise = imageCache.getLoadingPromise(compactUrl);
-      if (loadingPromise) {
-        // Set loading state
-        if (isMounted) {
-          setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
-        }
-
-        // Set timeout for loading (10 seconds max)
-        timeoutRef.current = setTimeout(() => {
-          if (isMounted) {
-            setImageState({ 
-              src: "", 
-              isLoading: false, 
-              isError: true 
-            });
-          }
-        }, 10000);
-
-        try {
-          const loadedUrl = await loadingPromise;
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          if (isMounted) {
-            setImageState({
-              src: loadedUrl,
-              isLoading: false,
-              isError: false
-            });
-          }
-        } catch (error) {
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          if (isMounted) {
-            setImageState({ 
-              src: "", 
-              isLoading: false, 
-              isError: true 
-            });
-          }
-        }
-        return;
-      }
-
-      if (isMounted) {
-        setImageState(prev => ({ ...prev, isLoading: true, isError: false }));
-      }
-
-      // Set timeout for loading (10 seconds max)
-      timeoutRef.current = setTimeout(() => {
-        if (isMounted) {
-          setImageState({ 
-            src: "", 
-            isLoading: false, 
-            isError: true 
-          });
-        }
-      }, 10000);
-
-      try {
-        const loadedUrl = await preloadImage(compactUrl, priority || index < 20);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-        if (isMounted) {
-          setImageState({ 
-            src: loadedUrl, 
-            isLoading: false, 
-            isError: false 
-          });
-        }
-      } catch (error) {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-        if (isMounted) {
-          setImageState({ 
-            src: "", 
-            isLoading: false, 
-            isError: true 
-          });
-        }
-      }
-    };
-
-    // Load immediately if visible (first 20 items)
-    if (index < 20) {
-      loadImage(true);
-    } else {
-      // Use Intersection Observer for lazy loading
-      if (typeof IntersectionObserver !== 'undefined' && imgRef.current) {
-        observerRef.current = new IntersectionObserver(
-          (entries) => {
-            entries.forEach((entry) => {
-              if (entry.isIntersecting && isMounted) {
-                loadImage(false);
-                if (observerRef.current && imgRef.current) {
-                  observerRef.current.unobserve(imgRef.current);
-                }
-              }
-            });
-          },
-          {
-            rootMargin: '50px',
-            threshold: 0.01
-          }
-        );
-        
-        observerRef.current.observe(imgRef.current);
-      } else {
-        loadImage(false);
-      }
+  const handleError = useCallback(() => {
+    attemptRef.current += 1;
+    if (attemptRef.current === 1 && wp.imageUrl) {
+      const busted = `${wp.imageUrl}${wp.imageUrl.includes("?") ? "&" : "?"}cb=1`;
+      setSrc(optimizedSrc(busted, 384));
+      return;
     }
-
-    return () => {
-      isMounted = false;
-      mountedRef.current = false;
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      if (observerRef.current && imgRef.current) {
-        observerRef.current.unobserve(imgRef.current);
-      }
-    };
-  }, [wp.imageUrl, index]);
+    if (attemptRef.current === 2 && wp.imageUrl && src !== wp.imageUrl) {
+      setSrc(wp.imageUrl);
+      return;
+    }
+    setStatus("error");
+  }, [wp.imageUrl, src]);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -608,50 +386,36 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
       className="group relative bg-zinc-800/50 rounded-lg overflow-hidden cursor-pointer border border-zinc-700/50 hover:border-zinc-600 transition-all duration-200"
     >
       {/* Image container */}
-      <div 
-        ref={imgRef}
+      <div
         className="relative aspect-[4/3] overflow-hidden"
         onClick={handleClick}
       >
-        {imageState.isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+        {status !== "loaded" && (
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-lg">
             <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
-            <div className="relative z-10 flex flex-col items-center gap-1">
-              <div className="w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
-              <span className="text-zinc-400 text-[10px]">Loading...</span>
-            </div>
+            {status === "loading" && (
+              <div className="relative z-10 flex flex-col items-center gap-1">
+                <div className="w-4 h-4 border-2 border-zinc-600 border-t-blue-500 rounded-full animate-spin"></div>
+                <span className="text-zinc-400 text-[10px]">Loading...</span>
+              </div>
+            )}
           </div>
         )}
 
-        {imageState.isError && (
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-lg">
-            <Skeleton className="absolute inset-0 rounded-lg bg-zinc-800" />
-          </div>
-        )}
-        
-        {imageState.src && !imageState.isLoading && !imageState.isError && (
-          <motion.img
-            src={imageState.src}
+        {compactUrl && (
+          <img
+            src={src}
             alt={wp.name}
-            loading={index < 20 ? "eager" : "lazy"}
+            crossOrigin="anonymous"
+            loading="lazy"
             decoding="async"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-            onError={() => {
-              if (!mountedRef.current) return;
-              // If the optimized thumbnail failed, fall back to the original full-res URL once.
-              if (wp.imageUrl && imageState.src !== wp.imageUrl) {
-                setImageState({ src: wp.imageUrl, isLoading: false, isError: false });
-                return;
-              }
-              setImageState({
-                src: "",
-                isLoading: false,
-                isError: true
-              });
-            }}
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+            onLoad={() => setStatus("loaded")}
+            onError={handleError}
+            className={`w-full h-full object-cover transition-all duration-300 group-hover:scale-110 select-none ${
+              status === "loaded" ? "opacity-100" : "opacity-0"
+            }`}
           />
         )}
 
@@ -666,11 +430,11 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
           <Trash2 className="w-3 h-3 text-white" />
         </Button>
 
-        {/* View button */}
+        {/* View button — opens the watermarked image, never the raw S3 URL */}
         <Button
           onClick={(e) => {
             e.stopPropagation();
-            window.open(wp.imageUrl, '_blank');
+            openWatermarkedImage(wp);
           }}
           size="icon"
           className={`absolute top-1 left-1 bg-black/70 hover:bg-black/90 rounded-full p-1 transition-all duration-200 ${
@@ -708,7 +472,8 @@ const CategorySection = React.memo(({
   onLike,
   likedWallpapers,
   highlightedProductCode,
-  id 
+  id,
+  sectionIndex = 0
 }) => {
   const sectionRef = useRef(null);
   const [isChangingPage, setIsChangingPage] = useState(false);
@@ -729,84 +494,13 @@ const CategorySection = React.memo(({
     [categoryItems, start]
   );
 
-  // Optimized: Preload visible images first, then adjacent pages with aggressive caching
-  useEffect(() => {
-    if (!categoryItems.length) return;
-    
-    const preloadCategoryImages = async () => {
-      // Priority 1: Preload visible images immediately with link preload for fastest loading
-      const visibleUrls = visibleItems
-        .filter(wp => wp.imageUrl)
-        .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-      
-      if (visibleUrls.length > 0) {
-        // Use link preload for instant loading (browser-level optimization)
-        visibleUrls.forEach(url => {
-          if (!document.querySelector(`link[rel="preload"][href="${url}"]`)) {
-            const link = document.createElement('link');
-            link.rel = 'preload';
-            link.as = 'image';
-            link.href = url;
-            link.fetchPriority = 'high';
-            link.crossOrigin = 'anonymous';
-            document.head.appendChild(link);
-          }
-        });
-        
-        // Preload with high concurrency for faster loading
-        preloadImagesBatch(visibleUrls, 12, true);
-      }
-      
-      // Priority 2: Aggressively preload next/previous page images (critical for smooth pagination)
-      const nextPageStart = Math.min(start + itemsPerPage, categoryItems.length);
-      const prevPageStart = Math.max(0, start - itemsPerPage);
-      
-      const nextPageItems = categoryItems.slice(nextPageStart, nextPageStart + itemsPerPage);
-      const prevPageItems = categoryItems.slice(prevPageStart, prevPageStart + itemsPerPage);
-      
-      const adjacentUrls = [
-        ...nextPageItems.filter(wp => wp.imageUrl).map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH)),
-        ...prevPageItems.filter(wp => wp.imageUrl).map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH))
-      ];
-      
-      if (adjacentUrls.length > 0) {
-        // Use link prefetch for adjacent pages
-        adjacentUrls.forEach(url => {
-          if (!document.querySelector(`link[rel="prefetch"][href="${url}"]`)) {
-            const link = document.createElement('link');
-            link.rel = 'prefetch';
-            link.as = 'image';
-            link.href = url;
-            link.crossOrigin = 'anonymous';
-            document.head.appendChild(link);
-          }
-        });
-        
-        // Load adjacent pages with high concurrency (don't wait)
-        preloadImagesBatch(adjacentUrls, 10, true);
-      }
-      
-      // Priority 3: Preload remaining images in background (throttled)
-      const remainingUrls = categoryItems
-        .filter((wp, idx) => {
-          const itemStart = Math.floor(idx / itemsPerPage) * itemsPerPage;
-          return itemStart !== start && 
-                 itemStart !== nextPageStart && 
-                 itemStart !== prevPageStart &&
-                 wp.imageUrl;
-        })
-        .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-      
-      if (remainingUrls.length > 0) {
-        // Load remaining images slowly in background
-        setTimeout(() => {
-          preloadImagesBatch(remainingUrls, 6, false);
-        }, 300);
-      }
-    };
-    
-    preloadCategoryImages();
-  }, [categoryItems, start, visibleItems, itemsPerPage]); // Include start and visibleItems
+  // NOTE: No mount-time image preloading here. This effect used to run for
+  // EVERY category on the page and eagerly warm visible + adjacent tiles, which
+  // meant loading the catalog fired hundreds of concurrent /_next/image
+  // requests at once (and got worse with every image added). Visible tiles now
+  // load through each card's own native-lazy <img>, and pagination is warmed
+  // on demand in handlePageChange — so the request count stays bounded no
+  // matter how large the catalog grows.
 
   // Check if this category contains the highlighted product
   const containsHighlightedProduct = useMemo(() => {
@@ -949,6 +643,9 @@ const CategorySection = React.memo(({
               isLiked={likedWallpapers.some(w => w.id === wp.id)}
               isHighlighted={wp.productCode === highlightedProductCode}
               id={id}
+              // Only the first category's first screenful loads eagerly; every
+              // other section defers to native lazy loading.
+              priority={sectionIndex === 0}
             />
           );
         })}
@@ -1081,19 +778,10 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
     onLike(wallpaper);
   };
 
-  const handleDownloadClick = (e) => {
-    e.stopPropagation();
-    const link = document.createElement('a');
-    link.href = wallpaper.imageUrl;
-    link.download = `${wallpaper.productCode || wallpaper.name}_wallpaper.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const handleViewFull = (e) => {
     e.stopPropagation();
-    window.open(wallpaper.imageUrl, "_blank");
+    // Open the watermarked image via a blob: URL instead of the raw S3 URL.
+    openWatermarkedImage(wallpaper);
   };
 
   return (
@@ -1195,9 +883,14 @@ const Lightbox = ({ wallpaper, isOpen, onClose, onLike, isLiked, id }) => {
                       <img
                         src={imageState.src || wallpaper.imageUrl}
                         alt={wallpaper.name}
+                        // Match the preloader's crossOrigin so the warmed
+                        // cache entry is reused (S3 allows CORS GET).
+                        crossOrigin="anonymous"
                         loading="eager"
                         decoding="async"
-                        className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg"
+                        draggable={false}
+                        onContextMenu={(e) => e.preventDefault()}
+                        className="max-w-full max-h-[70vh] w-auto h-auto object-contain rounded-lg select-none"
                         onLoad={() => {
                           if (mountedRef.current) {
                             setImageState((prev) => ({ ...prev, isLoading: false, isError: false }));
@@ -1432,25 +1125,22 @@ export default function EllendorfWallpaperApp() {
         });
         
         setWallpapers(activeWallpapers);
-        
-        // Ultra-optimized: Use requestIdleCallback for better performance
-        const schedulePreload = (callback, delay = 0) => {
-          if ('requestIdleCallback' in window) {
-            requestIdleCallback(callback, { timeout: delay });
-          } else {
-            setTimeout(callback, delay);
-          }
-        };
-        
-        // Priority 1: Preload critical above-the-fold images immediately
-        const criticalBatch = activeWallpapers.slice(0, 12);
-        const criticalUrls = criticalBatch
+
+        // Give only the first handful of above-the-fold thumbnails a
+        // <link rel="preload"> head-start so the largest contentful paint is
+        // fast. Everything else is fetched by each card's own native-lazy
+        // <img> exactly when it approaches the viewport, so the number of
+        // concurrent /_next/image requests stays bounded no matter how many
+        // images the catalog holds. (The old code bulk-preloaded dozens-to-
+        // hundreds of tiles up front, which cold-started the optimizer and was
+        // the main reason images crawled in on the first post-login visit.)
+        const firstSixUrls = activeWallpapers
+          .slice(0, 6)
           .filter(wp => wp.imageUrl)
           .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-        
-        if (criticalUrls.length > 0) {
-          // Use link preload for critical above-the-fold images (faster than prefetch)
-          criticalUrls.slice(0, 6).forEach(url => {
+
+        firstSixUrls.forEach(url => {
+          if (!document.querySelector(`link[rel="preload"][href="${url}"]`)) {
             const link = document.createElement('link');
             link.rel = 'preload';
             link.as = 'image';
@@ -1458,73 +1148,8 @@ export default function EllendorfWallpaperApp() {
             link.fetchPriority = 'high';
             link.crossOrigin = 'anonymous';
             document.head.appendChild(link);
-          });
-          
-          // Use prefetch for remaining critical images
-          criticalUrls.slice(6).forEach(url => {
-            const link = document.createElement('link');
-            link.rel = 'prefetch';
-            link.as = 'image';
-            link.href = url;
-            link.crossOrigin = 'anonymous';
-            document.head.appendChild(link);
-          });
-          
-          // Also preload with high priority using our batch function
-          preloadImagesBatch(criticalUrls, 8, true);
-        }
-        
-        // Priority 2: Preload next visible batch (below the fold)
-        schedulePreload(() => {
-          const firstBatch = activeWallpapers.slice(12, 36);
-          const firstBatchUrls = firstBatch
-            .filter(wp => wp.imageUrl)
-            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-          
-          if (firstBatchUrls.length > 0) {
-            preloadImagesBatch(firstBatchUrls, 6, true);
           }
-        }, 50);
-        
-        // Priority 3: Continue loading next batches in background
-        schedulePreload(() => {
-          const secondBatch = activeWallpapers.slice(36, 72);
-          const secondBatchUrls = secondBatch
-            .filter(wp => wp.imageUrl)
-            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-          
-          if (secondBatchUrls.length > 0) {
-            preloadImagesBatch(secondBatchUrls, 4, false);
-          }
-        }, 300);
-        
-        // Priority 4: Load remaining images slowly in background (idle time)
-        schedulePreload(() => {
-          const remainingUrls = activeWallpapers
-            .slice(72)
-            .filter(wp => wp.imageUrl)
-            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
-          
-          if (remainingUrls.length > 0) {
-            // Load in smaller chunks during idle time
-            let chunkIndex = 0;
-            const chunkSize = 20;
-            
-            const loadNextChunk = () => {
-              const chunk = remainingUrls.slice(chunkIndex, chunkIndex + chunkSize);
-              if (chunk.length > 0) {
-                preloadImagesBatch(chunk, 3, false);
-                chunkIndex += chunkSize;
-                
-                if (chunkIndex < remainingUrls.length) {
-                  schedulePreload(loadNextChunk, 100);
-                }
-              }
-            };
-            
-            loadNextChunk();
-          }
-        }, 1000);
+        });
       } catch (err) {
         console.error("Failed to fetch wallpapers:", err);
         setError("Failed to load wallpaper data. Please check your connection.");
@@ -2358,22 +1983,23 @@ export default function EllendorfWallpaperApp() {
           ) : searchTerm ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
               {filteredWallpapers.slice(0, 48).map((wp, index) => (
-                <WallpaperCard 
-                  key={wp.id} 
-                  wp={wp} 
+                <WallpaperCard
+                  key={wp.id}
+                  wp={wp}
                   index={index}
                   onClick={handleCardClick}
                   onLike={toggleLike}
                   isLiked={likedWallpapers.some(w => w.id === wp.id)}
                   isHighlighted={wp.productCode === highlightedProductCode}
                   id={id}
+                  priority
                 />
               ))}
             </div>
           ) : (
             <div>
-              {categories.map((category) => (
-                <CategorySection 
+              {categories.map((category, sectionIndex) => (
+                <CategorySection
                   key={category}
                   category={category}
                   wallpapers={filteredWallpapers}
@@ -2384,6 +2010,7 @@ export default function EllendorfWallpaperApp() {
                   likedWallpapers={likedWallpapers}
                   highlightedProductCode={highlightedProductCode}
                   id={id}
+                  sectionIndex={sectionIndex}
                 />
               ))}
             </div>

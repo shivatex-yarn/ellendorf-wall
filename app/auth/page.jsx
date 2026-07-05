@@ -167,12 +167,26 @@ export default function Auth() {
   return (
     <>
       <Toaster />
-      <div className="min-h-screen flex bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-100">
+      <div className="relative min-h-screen flex bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 overflow-hidden">
+        {/* Ambient background */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 -left-24 w-[36rem] h-[36rem] rounded-full bg-gradient-to-br from-blue-400/20 to-indigo-500/10 blur-3xl" />
+          <div className="absolute -bottom-32 right-0 w-[40rem] h-[40rem] rounded-full bg-gradient-to-tr from-indigo-400/15 to-sky-400/10 blur-3xl" />
+          <div
+            className="absolute inset-0 opacity-[0.4]"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, rgba(15,23,42,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.04) 1px, transparent 1px)",
+              backgroundSize: "44px 44px",
+            }}
+          />
+        </div>
+
         <motion.div
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
-          className="hidden lg:flex w-1/2 items-center justify-center p-12"
+          className="relative z-10 hidden lg:flex w-1/2 items-center justify-center p-12"
         >
           <div className="text-center max-w-lg">
             <motion.div 
@@ -227,23 +241,23 @@ export default function Auth() {
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
-          className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8"
+          className="relative z-10 w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8"
         >
-          <Card className="w-full max-w-md bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200">
-            <CardHeader className="text-center space-y-2">
-              <motion.div initial={{ scale: 0.8, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
-                <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Card className="w-full max-w-md rounded-3xl bg-white/70 backdrop-blur-2xl shadow-[0_20px_60px_-15px_rgba(30,58,138,0.25)] border border-white/60 ring-1 ring-slate-900/5">
+            <CardHeader className="text-center space-y-3 pt-8">
+              <motion.div initial={{ scale: 0.8, y: -10, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} transition={{ delay: 0.2, duration: 0.6 }}>
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-2 shadow-lg shadow-indigo-500/30 ring-1 ring-white/40">
                   <LogIn className="w-8 h-8 text-white" />
                 </div>
               </motion.div>
-              <h2 className="text-2xl font-bold text-gray-800">Welcome to Ellendorf</h2>
-              <p className="text-gray-500 text-sm">Sign in to your account</p>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Welcome back</h2>
+              <p className="text-slate-500 text-sm">Sign in to your Ellendorf account</p>
             </CardHeader>
 
-            <CardContent className="p-6">
+            <CardContent className="p-6 sm:p-8">
               <form className="space-y-5" onSubmit={handleLoginSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-semibold text-gray-700">
+                  <Label htmlFor="email" className="text-sm font-semibold text-slate-700">
                     Email Address
                   </Label>
                   <div className="relative">
@@ -256,8 +270,8 @@ export default function Auth() {
                       onChange={handleLoginChange}
                       required
                       disabled={isLoading} // Disable input during loading
-                      className={`w-full pl-10 pr-4 py-4 text-lg border-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100/50 transition-all duration-300 ${
-                        loginErrors.email ? "border-red-500" : "border-gray-200"
+                      className={`w-full h-13 pl-11 pr-4 py-3.5 text-base bg-white/80 border rounded-2xl shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 transition-all duration-300 ${
+                        loginErrors.email ? "border-red-400" : "border-slate-200"
                       } ${isLoading ? "opacity-70 cursor-not-allowed" : ""}`}
                     />
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
@@ -270,7 +284,7 @@ export default function Auth() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="password" className="text-sm font-semibold text-gray-700">
+                  <Label htmlFor="password" className="text-sm font-semibold text-slate-700">
                     Password
                   </Label>
                   <div className="relative">
@@ -283,8 +297,8 @@ export default function Auth() {
                       onChange={handleLoginChange}
                       required
                       disabled={isLoading} // Disable input during loading
-                      className={`w-full pl-10 pr-12 py-4 text-lg border-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100/50 transition-all duration-300 ${
-                        loginErrors.password ? "border-red-500" : "border-gray-200"
+                      className={`w-full h-13 pl-11 pr-12 py-3.5 text-base bg-white/80 border rounded-2xl shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 transition-all duration-300 ${
+                        loginErrors.password ? "border-red-400" : "border-slate-200"
                       } ${isLoading ? "opacity-70 cursor-not-allowed" : ""}`}
                     />
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
@@ -305,13 +319,13 @@ export default function Auth() {
                 </div>
 
                 {loginErrors.submit && (
-                  <p className="text-red-500 text-sm text-center bg-red-50 rounded-lg p-2">{loginErrors.submit}</p>
+                  <p className="text-red-600 text-sm text-center bg-red-50 border border-red-100 rounded-xl p-2.5">{loginErrors.submit}</p>
                 )}
 
                 <Button
                   type="submit"
                   disabled={isLoading} // Disable button during loading
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-4 rounded-xl text-lg shadow-md transform hover:scale-[1.02] transition-all duration-300 disabled:opacity-80 disabled:cursor-not-allowed disabled:transform-none"
+                  className="w-full h-13 bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-semibold py-4 rounded-2xl text-base shadow-lg shadow-indigo-500/30 transform hover:scale-[1.02] hover:shadow-xl hover:shadow-indigo-500/40 transition-all duration-300 disabled:opacity-80 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {isLoading ? (
                     <>

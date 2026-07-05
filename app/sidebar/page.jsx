@@ -243,7 +243,7 @@ export default function Sidebar() {
               <div className="text-[10px] text-gray-500 text-center leading-tight space-y-0.5">
                 <p className="mb-0.5 font-light">© {new Date().getFullYear()} Ellendorf. All rights reserved.</p>
                 <p className="mb-0.5 text-gray-400 font-light">Developed by internal team of Ellendorf</p>
-                <p className="text-gray-400 font-light">Version 1.1</p>
+                <p className="text-gray-400 font-light">Version 1.2</p>
               </div>
             </div>
           </div>
