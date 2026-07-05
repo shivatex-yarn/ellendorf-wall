@@ -124,6 +124,19 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* App-wide image protection: no drag-to-save, no text-selection handles.
+     Right-click is blocked in JS via <ImageGuard/>. */
+  img {
+    -webkit-user-drag: none;
+    -khtml-user-drag: none;
+    -moz-user-drag: none;
+    user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 }
 
