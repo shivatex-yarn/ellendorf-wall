@@ -23,7 +23,12 @@ import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import toast from "react-hot-toast";
 // Import shared image loading utilities with retry logic
-import { imageCache, preloadImage, preloadImagesBatch } from '../../lib/imageLoader.js';
+import { imageCache, preloadImage, preloadImagesBatch, optimizedSrc } from '../../lib/imageLoader.js';
+
+// Width (px) used for grid thumbnails routed through Next's image optimizer.
+// Must match everywhere in the grid path so preload warmers and rendered
+// <img> tags request the exact same optimized URL (browser-cache hit).
+const GRID_THUMB_WIDTH = 640;
 import Image from "next/image";
 import { useAuth } from '../layout/authcontent.jsx';
 
@@ -119,7 +124,9 @@ const getInitialImageState = (imageUrl) => {
 // WallpaperCard Component - Optimized with Intersection Observer for lazy loading
 const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighlighted, id, compact = false }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [imageState, setImageState] = useState(() => getInitialImageState(wp?.imageUrl));
+  // Grid tile shows a resized thumbnail via Next's optimizer, not the full-res original.
+  const gridUrl = wp?.imageUrl ? optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH) : "";
+  const [imageState, setImageState] = useState(() => getInitialImageState(gridUrl));
   const imgRef = useRef(null);
   const observerRef = useRef(null);
   const mountedRef = useRef(true);
@@ -148,7 +155,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }
 
       // Check cache first
-      const cachedValue = imageCache.get(wp.imageUrl);
+      const cachedValue = imageCache.get(gridUrl);
       if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
         if (isMounted) {
           setImageState({
@@ -161,7 +168,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }
 
       // If there's a pending promise, wait for it with timeout
-      const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
+      const loadingPromise = imageCache.getLoadingPromise(gridUrl);
       if (loadingPromise) {
         // Set loading state
         if (isMounted) {
@@ -224,7 +231,7 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
       }, 10000);
 
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 12);
+        const loadedUrl = await preloadImage(gridUrl, priority || index < 12);
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
@@ -358,13 +365,17 @@ const WallpaperCard = React.memo(({ wp, index, onClick, onLike, isLiked, isHighl
               compact ? 'rounded-lg' : 'rounded-2xl'
             }`}
             onError={() => {
-              if (mountedRef.current) {
-                setImageState({
-                  src: "",
-                  isLoading: false,
-                  isError: true
-                });
+              if (!mountedRef.current) return;
+              // If the optimized thumbnail failed, fall back to the original full-res URL once.
+              if (wp.imageUrl && imageState.src !== wp.imageUrl) {
+                setImageState({ src: wp.imageUrl, isLoading: false, isError: false });
+                return;
               }
+              setImageState({
+                src: "",
+                isLoading: false,
+                isError: true
+              });
             }}
           />
         )}
@@ -400,8 +411,10 @@ WallpaperCard.displayName = 'WallpaperCard';
 // Compact Wallpaper Card for Liked Modal - Optimized (init from cache to avoid re-loading)
 const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
   const [isHovered, setIsHovered] = useState(false);
+  // Compact tile shows a small resized thumbnail via Next's optimizer.
+  const compactUrl = wp?.imageUrl ? optimizedSrc(wp.imageUrl, 384) : "";
   const [imageState, setImageState] = useState(() => {
-    const s = getInitialImageState(wp?.imageUrl);
+    const s = getInitialImageState(compactUrl);
     return { src: s.src, isLoading: s.isLoading, isError: s.isError || false };
   });
   const imgRef = useRef(null);
@@ -429,7 +442,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
         }
         return;
       }
-      const cachedValue = imageCache.get(wp.imageUrl);
+      const cachedValue = imageCache.get(compactUrl);
       if (cachedValue && cachedValue !== null && !(cachedValue instanceof Promise)) {
         if (isMounted) {
           setImageState({
@@ -442,7 +455,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
       }
 
       // If there's a pending promise, wait for it with timeout
-      const loadingPromise = imageCache.getLoadingPromise(wp.imageUrl);
+      const loadingPromise = imageCache.getLoadingPromise(compactUrl);
       if (loadingPromise) {
         // Set loading state
         if (isMounted) {
@@ -505,7 +518,7 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
       }, 10000);
 
       try {
-        const loadedUrl = await preloadImage(wp.imageUrl, priority || index < 20);
+        const loadedUrl = await preloadImage(compactUrl, priority || index < 20);
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
@@ -627,13 +640,17 @@ const CompactWallpaperCard = React.memo(({ wp, index, onClick, onRemove }) => {
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
             onError={() => {
-              if (mountedRef.current) {
-                setImageState({ 
-                  src: "", 
-                  isLoading: false, 
-                  isError: true 
-                });
+              if (!mountedRef.current) return;
+              // If the optimized thumbnail failed, fall back to the original full-res URL once.
+              if (wp.imageUrl && imageState.src !== wp.imageUrl) {
+                setImageState({ src: wp.imageUrl, isLoading: false, isError: false });
+                return;
               }
+              setImageState({
+                src: "",
+                isLoading: false,
+                isError: true
+              });
             }}
           />
         )}
@@ -720,7 +737,7 @@ const CategorySection = React.memo(({
       // Priority 1: Preload visible images immediately with link preload for fastest loading
       const visibleUrls = visibleItems
         .filter(wp => wp.imageUrl)
-        .map(wp => wp.imageUrl);
+        .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
       
       if (visibleUrls.length > 0) {
         // Use link preload for instant loading (browser-level optimization)
@@ -748,8 +765,8 @@ const CategorySection = React.memo(({
       const prevPageItems = categoryItems.slice(prevPageStart, prevPageStart + itemsPerPage);
       
       const adjacentUrls = [
-        ...nextPageItems.filter(wp => wp.imageUrl).map(wp => wp.imageUrl),
-        ...prevPageItems.filter(wp => wp.imageUrl).map(wp => wp.imageUrl)
+        ...nextPageItems.filter(wp => wp.imageUrl).map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH)),
+        ...prevPageItems.filter(wp => wp.imageUrl).map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH))
       ];
       
       if (adjacentUrls.length > 0) {
@@ -778,7 +795,7 @@ const CategorySection = React.memo(({
                  itemStart !== prevPageStart &&
                  wp.imageUrl;
         })
-        .map(wp => wp.imageUrl);
+        .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
       
       if (remainingUrls.length > 0) {
         // Load remaining images slowly in background
@@ -825,7 +842,7 @@ const CategorySection = React.memo(({
     const newPageItems = categoryItems.slice(newPageStart, newPageStart + itemsPerPage);
     const newPageUrls = newPageItems
       .filter(wp => wp.imageUrl)
-      .map(wp => wp.imageUrl);
+      .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
     
     // Use link preload for instant browser-level caching
     newPageUrls.forEach(url => {
@@ -858,7 +875,7 @@ const CategorySection = React.memo(({
     const nextNextPageItems = categoryItems.slice(nextNextPageStart, nextNextPageStart + itemsPerPage);
     const nextNextPageUrls = nextNextPageItems
       .filter(wp => wp.imageUrl)
-      .map(wp => wp.imageUrl);
+      .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
     if (nextNextPageUrls.length > 0) {
       // Use prefetch for next-next page
       nextNextPageUrls.forEach(url => {
@@ -1429,7 +1446,7 @@ export default function EllendorfWallpaperApp() {
         const criticalBatch = activeWallpapers.slice(0, 12);
         const criticalUrls = criticalBatch
           .filter(wp => wp.imageUrl)
-          .map(wp => wp.imageUrl);
+          .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
         
         if (criticalUrls.length > 0) {
           // Use link preload for critical above-the-fold images (faster than prefetch)
@@ -1462,7 +1479,7 @@ export default function EllendorfWallpaperApp() {
           const firstBatch = activeWallpapers.slice(12, 36);
           const firstBatchUrls = firstBatch
             .filter(wp => wp.imageUrl)
-            .map(wp => wp.imageUrl);
+            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
           
           if (firstBatchUrls.length > 0) {
             preloadImagesBatch(firstBatchUrls, 6, true);
@@ -1474,7 +1491,7 @@ export default function EllendorfWallpaperApp() {
           const secondBatch = activeWallpapers.slice(36, 72);
           const secondBatchUrls = secondBatch
             .filter(wp => wp.imageUrl)
-            .map(wp => wp.imageUrl);
+            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
           
           if (secondBatchUrls.length > 0) {
             preloadImagesBatch(secondBatchUrls, 4, false);
@@ -1486,7 +1503,7 @@ export default function EllendorfWallpaperApp() {
           const remainingUrls = activeWallpapers
             .slice(72)
             .filter(wp => wp.imageUrl)
-            .map(wp => wp.imageUrl);
+            .map(wp => optimizedSrc(wp.imageUrl, GRID_THUMB_WIDTH));
           
           if (remainingUrls.length > 0) {
             // Load in smaller chunks during idle time
