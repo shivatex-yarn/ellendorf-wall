@@ -83,9 +83,37 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Record the logout event in the database (timestamp + user).
+  // Uses fetch with keepalive so the request still completes even when an
+  // idle logout immediately redirects the page to /auth.
+  const recordLogout = (userId, token) => {
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE;
+      if (!base || !token) return;
+      fetch(`${base}/api/users/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId }),
+        credentials: "include",
+        keepalive: true,
+      }).catch((err) => {
+        console.error("Failed to record logout on server:", err);
+      });
+    } catch (err) {
+      console.error("Failed to record logout on server:", err);
+    }
+  };
+
   const logout = (reason) => {
-    // Get user ID before clearing user state
+    // Get user ID + token before clearing user state so we can log the event
     const userId = user?.id;
+    const token = user?.token;
+
+    // Notify the backend so the logout is persisted in the database.
+    recordLogout(userId, token);
 
     clearIdleTimers();
     toast.dismiss(IDLE_WARNING_TOAST_ID);
